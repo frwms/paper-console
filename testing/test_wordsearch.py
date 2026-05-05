@@ -209,3 +209,11 @@ def test_wordsearch_overlap_logic():
     gen.place("B", 2, 2, *DIR_RIGHT)
     gen.place("C", 4, 4, *DIR_RIGHT)
     assert gen._calculate_overlap() == 0.0 # No overlap
+
+def test_wordsearch_empty_config_uses_easy_default():
+    printer = MagicMock()
+    printer.PRINTER_WIDTH_DOTS = 384
+
+    execute_wordsearch(printer, {})
+
+    printer.print_subheader.assert_any_call("Level: Easy")

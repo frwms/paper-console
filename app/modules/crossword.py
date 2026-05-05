@@ -157,6 +157,9 @@ class CrosswordGenerator:
                 random.shuffle(remaining_words_to_try)
 
                 for word_tuple in remaining_words_to_try:
+                    if len(self.words_placed) >= num_words:
+                        break
+
                     word, hint = word_tuple
 
                     # Try to find an intersection point with an already placed word

@@ -334,7 +334,7 @@ paper-console/
 
 **Crossword:** Easy / Medium / Hard; generated crossword puzzle printed as bitmap grid.
 
-**Word Search:** Easy / Medium / Hard; generated word search puzzle printed as bitmap grid.
+**Word Search:** Easy / Hard; generated word search puzzle printed as bitmap grid.
 
 ---
 

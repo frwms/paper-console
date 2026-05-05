@@ -1,6 +1,7 @@
 from collections import defaultdict
 import csv
 import os
+import random
 
 import pytest
 from unittest.mock import MagicMock
@@ -94,11 +95,36 @@ def test_crossword_scoring_logic():
     assert score2 > score1
     assert score2 == 5100
 
+def test_crossword_generation_does_not_exceed_requested_word_count():
+    """Generator should never place more words than the configured cap."""
+    file_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "app",
+        "data",
+        "crossword_words.csv",
+    )
+    with open(file_path, mode="r", encoding="utf-8") as f:
+        word_pool = [
+            (row["word"].strip().upper(), row["hint"].strip())
+            for row in csv.DictReader(f)
+            if row["word"].strip().isalpha() and row["hint"].strip()
+        ]
+
+    random.seed(2)
+    gen = CrosswordGenerator(8, 8)
+    gen.generate(word_pool, 10)
+
+    assert len(gen.words_placed) <= 10
+
 def test_no_duplicate_words():
-    file_path = "../app/data/crossword_words.csv"
-    if not os.path.exists(file_path):
-        print(f"Error: File not found at {file_path}")
-        return
+    file_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "app",
+        "data",
+        "crossword_words.csv",
+    )
 
     # Dictionary to store word occurrences: { WORD: [row_data, ...] }
     word_map = defaultdict(list)

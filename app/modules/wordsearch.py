@@ -285,7 +285,7 @@ def render_wordsearch_grid(grid: List[List[str]], cell_size: int, font_path: str
 def execute_wordsearch(printer, config: Dict[str, Any], module_name: str = None):
     """Word search module implementation."""
     num_words = config.get("num_words", 15)
-    difficulty = config.get("difficulty", "Hard")
+    difficulty = config.get("difficulty", "Easy")
     
     # 1. Load word list from the shared crossword source
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
