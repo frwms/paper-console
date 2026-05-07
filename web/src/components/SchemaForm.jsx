@@ -56,7 +56,7 @@ const IncomingWebhookHelp = ({ rootValue = {} }) => {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'http://pc-1.local';
   const endpointUrl = `${origin}/hook/${endpointPath}`;
   const authHeader = token
-    ? `-H 'Authorization: Bearer ${token}' \\\n`
+    ? `-H 'Authorization: Bearer YOUR_TOKEN_HERE' \\\n`
     : '';
   const authNote = token
     ? "Auth enabled: send the bearer token in the Authorization header."
