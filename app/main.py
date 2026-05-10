@@ -2288,6 +2288,30 @@ def _is_release_newer_than_current(latest_version: str, current_version: str) ->
     return latest_version != current_version
 
 
+def _is_prerelease_tag(tag_name: str) -> bool:
+    semver = _parse_semver_tag(tag_name)
+    return bool(semver and semver[3])
+
+
+def _is_release_target_available(
+    target_version: str,
+    current_version: str,
+    *,
+    release_channel: str,
+) -> bool:
+    if not target_version or target_version == current_version:
+        return False
+
+    if _is_release_newer_than_current(target_version, current_version):
+        return True
+
+    return (
+        release_channel == "stable"
+        and _is_prerelease_tag(current_version)
+        and not _is_prerelease_tag(target_version)
+    )
+
+
 def _select_release_from_list(
     releases: object,
     *,
@@ -2787,7 +2811,11 @@ async def check_for_updates():
                 "release_channel": release_channel,
             }
 
-        if not _is_release_newer_than_current(latest_version, current_version):
+        if not _is_release_target_available(
+            latest_version,
+            current_version,
+            release_channel=release_channel,
+        ):
             return {
                 "available": False,
                 "up_to_date": True,

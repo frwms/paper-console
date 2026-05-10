@@ -447,7 +447,7 @@ def test_check_for_updates_falls_back_to_stable_when_beta_lane_has_no_prerelease
     assert result["release_channel"] == "beta"
 
 
-def test_check_for_updates_does_not_offer_semver_downgrade(monkeypatch, tmp_path):
+def test_check_for_updates_offers_stable_channel_switch_from_beta(monkeypatch, tmp_path):
     project_root = tmp_path / "project"
     app_dir = project_root / "app"
     app_dir.mkdir(parents=True)
@@ -483,9 +483,54 @@ def test_check_for_updates_does_not_offer_semver_downgrade(monkeypatch, tmp_path
 
     result = asyncio.run(main_module.check_for_updates())
 
+    assert result["available"] is True
+    assert result["up_to_date"] is False
+    assert result["current_version"] == "v0.2.11-beta.2"
+    assert result["latest_version"] == "v0.2.10"
+    assert result["release_channel"] == "stable"
+
+
+def test_check_for_updates_does_not_offer_older_stable_target_from_stable(
+    monkeypatch, tmp_path
+):
+    project_root = tmp_path / "project"
+    app_dir = project_root / "app"
+    app_dir.mkdir(parents=True)
+    fake_main_path = app_dir / "main.py"
+    fake_main_path.write_text("# test stub\n", encoding="utf-8")
+    (project_root / ".version").write_text("v0.2.11\n", encoding="utf-8")
+
+    class DummyResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                {"tag_name": "v0.2.10", "draft": False, "prerelease": False},
+            ]
+
+    def fake_requests_get(url, headers=None, timeout=None):  # noqa: ARG001
+        assert url.endswith("/releases")
+        return DummyResponse()
+
+    monkeypatch.setattr(main_module, "__file__", str(fake_main_path))
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        types.SimpleNamespace(release_channel="stable"),
+        raising=False,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "requests",
+        types.SimpleNamespace(get=fake_requests_get),
+    )
+
+    result = asyncio.run(main_module.check_for_updates())
+
     assert result["available"] is False
     assert result["up_to_date"] is True
-    assert result["current_version"] == "v0.2.11-beta.2"
+    assert result["current_version"] == "v0.2.11"
     assert result["latest_version"] == "v0.2.10"
     assert result["release_channel"] == "stable"
 
