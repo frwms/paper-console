@@ -45,25 +45,46 @@ The canonical publish path is a Git tag push.
 
 ## Recommended branch lanes
 
-Use separate long-lived branches for stable-ready and beta-only work:
+Use separate long-lived branches for the current stable line and the next release train:
 
 - `main`: stable-ready branch. Only merge changes here that you would ship to the normal customer OTA lane.
-- `beta`: integration branch for prerelease-only work that should remain off the stable path until proven.
+- `beta`: next release train branch. This is where beta-only features can live for a while before they are ready for stable.
+
+Mental model:
+
+- `main` carries the current stable line, for example `v0.3.x`.
+- `beta` carries prereleases for the next stable target, for example `v0.4.0-beta.1`, `v0.4.0-beta.2`, and so on.
+- Beta is not just "slightly newer than stable." Beta is a preview of the next stable release train.
+
+Example:
+
+- stable line:
+  - `v0.3.5`
+  - `v0.3.6`
+  - `v0.3.7`
+- beta train for the next release:
+  - `v0.4.0-beta.1`
+  - `v0.4.0-beta.2`
+  - `v0.4.0-rc.1`
+  - later promoted to `v0.4.0`
 
 For urgent production fixes:
 
 1. Create a short-lived hotfix branch from the latest stable tag, for example `release/v1.2.3-hotfix`.
 2. Apply only the production fix there.
 3. Tag and publish the next stable release from that hotfix branch.
-4. Cherry-pick the same fix onto `main` and `beta` as needed so the lanes converge intentionally.
+4. Cherry-pick the same fix onto `main` and `beta`.
+5. Cut the next beta prerelease from the existing beta train so beta testers also receive the fix.
 
-This keeps stable releases from accidentally inheriting beta-only modules or unfinished UI work.
+This keeps stable releases from accidentally inheriting beta-only modules or unfinished UI work, while still making it easy to land hotfixes on both lanes.
 
 You can also run the workflow manually with `workflow_dispatch`, but normal day-to-day releases should use tag pushes so the Git tag and published release stay aligned.
 
 ## Stable release path
 
 Use this path for the normal customer-facing OTA lane.
+
+Stable tags should come from the current stable line on `main` or from a hotfix branch cut from the latest stable tag.
 
 1. Build locally and sanity-check the bundle:
 
@@ -96,33 +117,38 @@ Optional hardening:
 
 ## Beta release path
 
-Use normal semver prerelease tags for beta/RC builds, for example:
+Use normal semver prerelease tags for the next stable train, for example:
 
-- `v1.2.3-beta.1`
-- `v1.2.3-beta.2`
-- `v1.2.3-rc.1`
+- `v1.3.0-beta.1`
+- `v1.3.0-beta.2`
+- `v1.3.0-rc.1`
 
-Use this path when you want the release to be available only to devices that explicitly opt into beta updates.
+Use this path when you want the release to be available only to devices that explicitly opt into beta updates, while keeping the feature set ahead of stable.
+
+Important versioning rule:
+
+- Once stable is on `v1.2.x`, beta should normally move to the next release target such as `v1.3.0-beta.N`.
+- Avoid using beta tags like `v1.2.4-beta.2` just to make beta appear "newer" than stable. That creates confusing version ordering and makes the release intent harder to reason about.
 
 1. Build locally and sanity-check the bundle:
 
 ```bash
-./.venv/bin/python scripts/release_build.py --version v1.2.3-beta.1 --build-web
+./.venv/bin/python scripts/release_build.py --version v1.3.0-beta.1 --build-web
 ```
 
 2. Create and push the prerelease tag:
 
 ```bash
-git tag v1.2.3-beta.1
-git push origin v1.2.3-beta.1
+git tag v1.3.0-beta.1
+git push origin v1.3.0-beta.1
 ```
 
 3. Wait for the GitHub Actions release workflow to finish.
 
-4. Verify GitHub published `v1.2.3-beta.1` as a **pre-release** and uploaded:
-   - `pc1-v1.2.3-beta.1.tar.gz`
-   - `pc1-v1.2.3-beta.1.sha256`
-   - `release-manifest-v1.2.3-beta.1.json`
+4. Verify GitHub published `v1.3.0-beta.1` as a **pre-release** and uploaded:
+   - `pc1-v1.3.0-beta.1.tar.gz`
+   - `pc1-v1.3.0-beta.1.sha256`
+   - `release-manifest-v1.3.0-beta.1.json`
    - `SHA256SUMS`
 
 OTA behavior:
@@ -136,6 +162,11 @@ Current implementation note:
 - Devices on the `beta` channel receive the highest SemVer release across published prereleases and stable releases.
 - Devices on the `stable` channel only receive published stable releases.
 - Switching the **Beta Releases** toggle in General Settings changes which lane the device checks immediately.
+
+Operational guidance:
+
+- Because the updater currently compares beta and stable releases using SemVer ordering, keeping beta on the next train (`v1.3.0-beta.N` while stable is `v1.2.x`) avoids awkward edge cases.
+- In other words: prefer train-based versioning rather than trying to keep beta "numerically ahead" with patch-level prereleases on the current stable line.
 
 ## Day-to-day release checklist
 
@@ -151,13 +182,28 @@ For a stable release:
 
 For a beta release:
 
-1. Merge the intended prerelease changes to `beta`.
+1. Merge the intended next-train changes to `beta`.
 2. Run local tests and build checks.
 3. Run `npm audit` in `web/` and fix audit findings before tagging.
 4. If dependency fixes rebuild `web/dist`, commit the lockfile and generated dist assets before tagging.
-5. Push `vX.Y.Z-beta.N` or `vX.Y.Z-rc.N`.
+5. Push a prerelease tag for the next stable target, such as `vX.(Y+1).0-beta.N` or `vX.(Y+1).0-rc.N`.
 6. Confirm GitHub marked the release as a prerelease.
 7. Confirm a production device with **Beta Releases** enabled sees the update in General Settings.
+
+For a stable hotfix that should also reach beta:
+
+1. Create a hotfix branch from the latest stable tag.
+2. Publish the next stable patch release from that hotfix branch.
+3. Cherry-pick the same fix onto `main`.
+4. Cherry-pick the same fix onto `beta`.
+5. Publish the next beta prerelease from the existing beta train.
+
+Example:
+
+- stable today: `v0.3.6`
+- beta train today: `v0.4.0-beta.2`
+- urgent fix ships to stable as: `v0.3.7`
+- same fix then ships to beta as: `v0.4.0-beta.3`
 
 ## Factory image guidance
 

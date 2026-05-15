@@ -245,14 +245,14 @@ def _print_calendar_day_view(printer, sorted_dates, all_events):
     """Agenda list for 1 day."""
     if not sorted_dates:
         return
-
+    
     d = sorted_dates[0]
     events = all_events[d]
     events.sort(key=lambda x: x["sort_key"])
-
+    
     # Day header
     day_name = _relative_day_label(d, current_date())
-
+    
     printer.print_subheader(f"{day_name} ({d.strftime('%m/%d')})")
     printer.feed(1)
 
@@ -356,7 +356,7 @@ def _print_calendar_month_view(printer, sorted_dates, all_events):
             
             # Day header
             day_name = _relative_day_label(d, today)
-
+            
             printer.print_bold(f"{day_name} {d.strftime('%m/%d')}")
             
             for evt in events:
@@ -381,7 +381,7 @@ def _print_calendar_month_view(printer, sorted_dates, all_events):
             
             # Day header
             day_name = _relative_day_label(d, today)
-
+            
             printer.print_bold(f"{day_name} {d.strftime('%m/%d')}")
             
             for evt in events:
@@ -405,10 +405,10 @@ def _print_calendar_compact_view(printer, sorted_dates, all_events):
     for i, d in enumerate(sorted_dates[:3]):
         events = all_events[d]
         events.sort(key=lambda x: x["sort_key"])
-
+        
         # Day header
         day_name = _relative_day_label(d, today)
-
+        
         printer.print_subheader(f"{day_name} ({d.strftime('%m/%d')})")
         
         # Print events in compact list format
@@ -434,7 +434,7 @@ def _print_calendar_week_view(printer, sorted_dates, all_events):
     for d, events in all_events.items():
         date_key = d.isoformat() if isinstance(d, date) else str(d)
         events_by_date[date_key] = len(events)
-
+    
     # Print week calendar grid.
     today = current_date()
     cell_size = _calendar_grid_cell_size(printer)
@@ -457,7 +457,7 @@ def _print_calendar_week_view(printer, sorted_dates, all_events):
         
         # Day header
         day_name = _relative_day_label(d, today)
-
+        
         printer.print_subheader(f"{day_name} ({d.strftime('%m/%d')})")
         
         # Print events in compact list format

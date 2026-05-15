@@ -16,6 +16,14 @@ class PreparedPrintWebhookJob:
     job: Dict[str, Any]
 
 
+@dataclass
+class ResolvedPrintWebhookTarget:
+    module_id: str
+    config: PrintWebhookConfig
+    module_name: str
+    metadata_lines: List[str]
+
+
 def slugify_endpoint(value: str) -> str:
     slug = re.sub(r"[^a-z0-9-]+", "-", (value or "").strip().lower())
     slug = slug.strip("-")
@@ -147,15 +155,47 @@ def build_metadata_lines(
     return lines
 
 
-def prepare_incoming_job(
+async def read_limited_request_body(
+    request: Request,
+    *,
+    max_bytes: Optional[int] = None,
+) -> bytes:
+    if max_bytes is None:
+        max_bytes = print_webhook.INCOMING_WEBHOOK_MAX_REQUEST_BYTES
+
+    error_detail = (
+        "Request body too large. "
+        f"Max {max_bytes / (1024 * 1024):g} MB."
+    )
+    content_length = (request.headers.get("content-length") or "").strip()
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise HTTPException(status_code=413, detail=error_detail)
+        except ValueError:
+            pass
+
+    chunks: List[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail=error_detail)
+        chunks.append(chunk)
+
+    return b"".join(chunks)
+
+
+def resolve_incoming_target(
     *,
     modules: Mapping[str, ModuleInstance],
     channels: Mapping[int, ChannelConfig],
     endpoint_path: str,
     request: Request,
     dial_position: Optional[int],
-    body: bytes,
-) -> PreparedPrintWebhookJob:
+) -> ResolvedPrintWebhookTarget:
     module = _find_module_by_path(modules, endpoint_path)
     if not module:
         raise HTTPException(status_code=404, detail="Webhook endpoint not found")
@@ -171,21 +211,57 @@ def prepare_incoming_job(
             detail="Print webhook module is not on the active channel",
         )
 
+    return ResolvedPrintWebhookTarget(
+        module_id=module.id,
+        config=config,
+        module_name=module.name or "PRINT WEBHOOK",
+        metadata_lines=build_metadata_lines(request, config),
+    )
+
+
+def finalize_incoming_job(
+    *,
+    target: ResolvedPrintWebhookTarget,
+    content_type: str,
+    body: bytes,
+) -> PreparedPrintWebhookJob:
     try:
         job = print_webhook.parse_request_payload(
-            content_type=request.headers.get("content-type", ""),
+            content_type=content_type,
             body=body,
-            config=config,
-            module_name=module.name or "PRINT WEBHOOK",
+            config=target.config,
+            module_name=target.module_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    metadata_lines = build_metadata_lines(request, config)
-    if metadata_lines:
-        job["metadata_lines"] = metadata_lines
+    if target.metadata_lines:
+        job["metadata_lines"] = target.metadata_lines
 
-    return PreparedPrintWebhookJob(module_id=module.id, job=job)
+    return PreparedPrintWebhookJob(module_id=target.module_id, job=job)
+
+
+def prepare_incoming_job(
+    *,
+    modules: Mapping[str, ModuleInstance],
+    channels: Mapping[int, ChannelConfig],
+    endpoint_path: str,
+    request: Request,
+    dial_position: Optional[int],
+    body: bytes,
+) -> PreparedPrintWebhookJob:
+    target = resolve_incoming_target(
+        modules=modules,
+        channels=channels,
+        endpoint_path=endpoint_path,
+        request=request,
+        dial_position=dial_position,
+    )
+    return finalize_incoming_job(
+        target=target,
+        content_type=request.headers.get("content-type", ""),
+        body=body,
+    )
 
 
 def print_job(

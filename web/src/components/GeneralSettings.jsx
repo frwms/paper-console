@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { formatTimeForDisplay } from '../utils';
 import { INK_GRADIENTS } from '../constants';
 import PrimaryButton from './PrimaryButton';
@@ -13,6 +13,7 @@ const GeneralSettings = ({
   saveGlobalSettings,
   triggerAPMode,
   wifiStatus,
+  onConfigImported,
 }) => {
   const inputClass = 'w-full p-3 text-base border-2 border-gray-300 rounded-lg focus:outline-none box-border';
   const labelClass = 'block mb-2 font-bold';
@@ -59,6 +60,10 @@ const GeneralSettings = ({
   const [installMode, setInstallMode] = useState(null);
   const [updateProgress, setUpdateProgress] = useState({ stage: '', progress: 0 });
   const releaseChannel = settings?.release_channel === 'beta' ? 'beta' : 'stable';
+  const [configTransferMessage, setConfigTransferMessage] = useState({ type: '', message: '', warnings: [] });
+  const [exportingConfig, setExportingConfig] = useState(false);
+  const [importingConfig, setImportingConfig] = useState(false);
+  const configFileInputRef = useRef(null);
 
   // Fetch current system time on mount and periodically
   useEffect(() => {
@@ -153,6 +158,25 @@ const GeneralSettings = ({
     setTimeout(() => setter({ type: '', message: '' }), 5000);
   };
 
+  const clearConfigTransferMessage = () => {
+    setConfigTransferMessage({ type: '', message: '', warnings: [] });
+  };
+
+  const parseContentDispositionFilename = (headerValue) => {
+    if (!headerValue) return '';
+    const utf8Match = headerValue.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1]);
+      } catch {
+        return utf8Match[1];
+      }
+    }
+
+    const filenameMatch = headerValue.match(/filename=\"?([^\";]+)\"?/i);
+    return filenameMatch?.[1] || '';
+  };
+
   const waitForServiceRestartAndReload = () => {
     const maxReloadTimeout = setTimeout(() => {
       window.location.reload();
@@ -236,6 +260,85 @@ const GeneralSettings = ({
 
       poll();
     }, 15000);
+  };
+
+  const handleExportConfig = async () => {
+    setExportingConfig(true);
+      setConfigTransferMessage({ type: '', message: '', warnings: [] });
+
+    try {
+      const response = await adminAuthFetch('/api/settings/export');
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(getApiError(data, 'Failed to export configuration'));
+      }
+
+      const blob = await response.blob();
+      const filename =
+        parseContentDispositionFilename(response.headers.get('Content-Disposition')) ||
+        'pc1-config.json';
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      setConfigTransferMessage({ type: 'success', message: 'Configuration exported.', warnings: [] });
+    } catch (err) {
+      setConfigTransferMessage({ type: 'error', message: err.message || 'Failed to export configuration', warnings: [] });
+    } finally {
+      setExportingConfig(false);
+    }
+  };
+
+  const handleImportConfig = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    if (!window.confirm(`Import configuration from "${file.name}"? This will replace current settings, channels, and modules.`)) {
+      return;
+    }
+
+    setImportingConfig(true);
+    setConfigTransferMessage({ type: '', message: '', warnings: [] });
+
+    try {
+      const fileText = await file.text();
+
+      const response = await adminAuthFetch('/api/settings/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: fileText,
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(getApiError(data, 'Failed to import configuration'));
+      }
+
+      onConfigImported?.(data.config, data.message || 'Configuration imported successfully!');
+
+      const warnings = Array.isArray(data.validation_warnings) ? data.validation_warnings : [];
+      const warningSuffix = warnings.length > 0
+        ? ' Imported with validation warnings.'
+        : '';
+      setConfigTransferMessage({
+        type: 'success',
+        message: `${data.message || 'Configuration imported.'}${warningSuffix}`,
+        warnings,
+      });
+    } catch (err) {
+      setConfigTransferMessage({ type: 'error', message: err.message || 'Failed to import configuration', warnings: [] });
+    } finally {
+      setImportingConfig(false);
+    }
   };
 
   const runRestartingUpdateAction = async ({
@@ -748,6 +851,22 @@ const GeneralSettings = ({
         </div>
       )}
 
+      {/* Location Settings */}
+      <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[2] }}>
+        <div className='bg-bg-card rounded-lg p-4 flex flex-col'>
+          <h3 className='font-bold text-black  text-lg tracking-tight mb-3'>Location</h3>
+
+          {/* Universal Location Search Component */}
+          <div className='mb-4'>
+            <label className='block mb-2 text-sm text-gray-600 font-bold'>Set Location</label>
+            <LocationSearch 
+              value={settings} 
+              onChange={(newLoc) => saveGlobalSettings(newLoc)} 
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Time Settings */}
       <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[1] }}>
         <div className='bg-bg-card rounded-lg p-4 flex flex-col'>
@@ -930,22 +1049,6 @@ const GeneralSettings = ({
         </div>
       </div>
 
-      {/* Location Settings */}
-      <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[2] }}>
-        <div className='bg-bg-card rounded-lg p-4 flex flex-col'>
-          <h3 className='font-bold text-black  text-lg tracking-tight mb-3'>Location</h3>
-
-          {/* Universal Location Search Component */}
-          <div className='mb-4'>
-            <label className='block mb-2 text-sm text-gray-600 font-bold'>Set Location</label>
-            <LocationSearch 
-              value={settings} 
-              onChange={(newLoc) => saveGlobalSettings(newLoc)} 
-            />
-          </div>
-        </div>
-      </div>
-
       {/* Printer Settings */}
       <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[3] }}>
         <div className='bg-bg-card rounded-lg p-4 flex flex-col'>
@@ -964,23 +1067,11 @@ const GeneralSettings = ({
               Maximum lines per print job to prevent endless prints. Set to 0 for no limit (default: 200)
             </p>
           </div>
-
-          <div className='mt-4 pt-4 border-t border-gray-200'>
-            <label className={labelClass}>Reboot Device</label>
-            <p className='text-sm text-gray-600 mb-3'>
-              Restart the device to clear any stuck or unexpected state. It will be offline for about 30–60 seconds.
-            </p>
-            {rebootingDevice ? (
-              <div className='text-sm text-gray-600 font-medium'>Rebooting… page will reload when the device comes back online.</div>
-            ) : (
-              <PrimaryButton onClick={handleDeviceReboot}>Reboot Device</PrimaryButton>
-            )}
-          </div>
         </div>
       </div>
 
       {/* Device Password */}
-      <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[4] }}>
+      <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[5] || inkGradients[4] }}>
         <div className='bg-bg-card rounded-lg p-4 flex flex-col'>
           <h3 className='font-bold text-black  text-lg tracking-tight mb-3'>Device Password</h3>
           <p className='text-sm text-gray-600 mb-4 '>
@@ -1089,7 +1180,7 @@ const GeneralSettings = ({
       </div>
 
       {/* SSH Management */}
-      <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[5] || inkGradients[4] }}>
+      <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[0] }}>
         <div className='bg-bg-card rounded-lg p-4 flex flex-col'>
           <h3 className='font-bold text-black  text-lg tracking-tight mb-3'>SSH Access</h3>
           <p className='text-sm text-gray-600 mb-4 '>
@@ -1227,6 +1318,93 @@ const GeneralSettings = ({
             <div className='p-4 border-2 border-gray-300 rounded-lg'>
               <p className='text-sm text-gray-500 '>SSH isn't available in testing mode</p>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Config Backup */}
+      <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[4] }}>
+        <div className='bg-bg-card rounded-lg p-4 flex flex-col'>
+          <h3 className='font-bold text-black text-lg tracking-tight mb-3'>Config Backup</h3>
+          <p className='text-sm text-gray-600 mb-4'>
+            Export your full PC-1 configuration to a JSON file, or import a previously exported config to restore settings, channels, and modules.
+          </p>
+
+          <input
+            ref={configFileInputRef}
+            type='file'
+            accept='application/json,.json'
+            onChange={handleImportConfig}
+            className='hidden'
+          />
+
+          <div className='flex flex-col sm:flex-row gap-3'>
+            <PrimaryButton
+              onClick={handleExportConfig}
+              disabled={exportingConfig || importingConfig}
+              loading={exportingConfig}
+              className='flex-1'>
+              Export Config
+            </PrimaryButton>
+            <PrimaryButton
+              onClick={() => configFileInputRef.current?.click()}
+              disabled={exportingConfig || importingConfig}
+              loading={importingConfig}
+              className='flex-1'>
+              Import Config
+            </PrimaryButton>
+          </div>
+
+          <p className='text-xs text-gray-600 mt-2'>
+            Imports replace the current configuration immediately. Use exported JSON files from PC-1 for the safest restore path.
+          </p>
+
+          {configTransferMessage.message && (
+            <div
+              className={`mt-4 p-3 rounded-lg text-sm border-2 ${
+                configTransferMessage.type === 'success'
+                  ? 'bg-gray-100 text-black border-black'
+                  : 'bg-white text-black border-black border-dashed'
+              }`}>
+              <div className='flex items-start justify-between gap-3'>
+                <div className='flex-1'>
+                  {configTransferMessage.type === 'error' && <span className='font-bold mr-2'>ERROR:</span>}
+                  <span>{configTransferMessage.message}</span>
+                </div>
+                <button
+                  type='button'
+                  onClick={clearConfigTransferMessage}
+                  className='shrink-0 rounded border border-gray-400 bg-white px-2 py-1 text-xs font-bold text-gray-700 hover:border-black hover:text-black transition-colors cursor-pointer'>
+                  X
+                </button>
+              </div>
+              {configTransferMessage.warnings?.length > 0 && (
+                <div className='mt-3 space-y-2'>
+                  {configTransferMessage.warnings.map((warning, index) => (
+                    <div
+                      key={`${warning}-${index}`}
+                      className='rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700'>
+                      {warning}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Device Reboot */}
+      <div className='rounded-xl p-[4px] shadow-lg' style={{ background: inkGradients[1] }}>
+        <div className='bg-bg-card rounded-lg p-4 flex flex-col'>
+          <h3 className='font-bold text-black text-lg tracking-tight mb-3'>Device Reboot</h3>
+          <p className='text-sm text-gray-600 mb-3'>
+            Restart the device to clear any stuck or unexpected state. It will be offline for about 30–60 seconds.
+          </p>
+          {rebootingDevice ? (
+            <div className='text-sm text-gray-600 font-medium'>Rebooting… page will reload when the device comes back online.</div>
+          ) : (
+            <PrimaryButton onClick={handleDeviceReboot}>Reboot Device</PrimaryButton>
           )}
         </div>
       </div>
