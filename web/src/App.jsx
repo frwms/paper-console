@@ -299,6 +299,16 @@ function App() {
     }
   };
 
+  const applyImportedConfig = (config, message = 'Configuration imported successfully!') => {
+    if (!config) {
+      return;
+    }
+    setSettings(config);
+    setModules(config.modules || {});
+    setStatus({ type: 'success', message });
+    setTimeout(() => setStatus({ type: '', message: '' }), 4000);
+  };
+
   const selectLocation = (location) => {
     // Use city field if available (just city name), otherwise use name (which may include state)
     // This prevents double state abbreviations in display
@@ -830,6 +840,7 @@ function App() {
               saveGlobalSettings={saveGlobalSettings}
               triggerAPMode={triggerAPMode}
               wifiStatus={wifiStatus}
+              onConfigImported={applyImportedConfig}
             />
             <div className='mt-8 flex items-center justify-between'>
               {/* GitHub Link */}

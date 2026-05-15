@@ -7,7 +7,7 @@
 * **No screens:** output is physical thermal paper.
 * **No subscriptions:** user-owned API keys or local algorithms.
 * **Quality materials:** walnut, brass, and archival-grade paper.
-* **Universal channels:** fully configurable channels (Adventure, Astronomy, Calendar, Email, History, Journal Prompt, Maze, News, QR Code, Quotes, RSS, Sudoku, System Monitor, Text / Note, Weather, Webhook)
+* **Universal channels:** fully configurable channels (Adventure, Astronomy, Calendar, Email, History, Journal Prompt, Maze, News, Print Endpoint, QR Code, Quotes, RSS, Sudoku, System Monitor, Text / Note, Weather, Webhook)
 
 For more information and build photos, visit [travismiller.design/paper-console](https://travismiller.design/paper-console).
 
@@ -167,7 +167,7 @@ Configuration is handled entirely via the **Web UI** at `http://pc-1.local` (or 
 
 Each module is an independent instance with its own configuration. See [Architecture & Modules](#4-architecture--modules) for detailed information.
 
-Available modules: **News API**, **RSS Feeds**, **Weather**, **Email Inbox**, **Sudoku**, **Maze**, **Adventure**, **Astronomy**, **Calendar**, **Webhook**, **QR Code**, **Text / Note**, **Quotes**, **Journal Prompt**, **History**, **System Monitor**, **Word of the Day**
+Available modules: **News API**, **RSS Feeds**, **Weather**, **Email Inbox**, **Sudoku**, **Maze**, **Adventure**, **Astronomy**, **Calendar**, **Webhook**, **Print Endpoint**, **QR Code**, **Text / Note**, **Quotes**, **Journal Prompt**, **History**, **System Monitor**, **Word of the Day**
 
 ### Settings Storage
 * **Settings File:** `config.json` (auto-saved, gitignored)

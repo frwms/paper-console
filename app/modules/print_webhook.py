@@ -1,8 +1,11 @@
 import base64
 import io
+import ipaddress
 import json
 import logging
+import socket
 from typing import Any, Dict, Optional
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from PIL import Image
@@ -16,10 +19,70 @@ logger = logging.getLogger(__name__)
 INCOMING_WEBHOOK_MAX_WIDTH_DOTS = 384
 INCOMING_WEBHOOK_DEFAULT_MAX_HEIGHT_DOTS = 4096
 INCOMING_WEBHOOK_JSON_MEDIA_TYPE = "application/vnd.pc1.print+json"
+INCOMING_WEBHOOK_MAX_REQUEST_BYTES = 5 * 1024 * 1024
+INCOMING_WEBHOOK_REMOTE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+INCOMING_WEBHOOK_REMOTE_IMAGE_MAX_REDIRECTS = 3
 
 
 def normalize_content_type(content_type: str) -> str:
     return (content_type or "").split(";", 1)[0].strip().lower()
+
+
+def _format_size_limit_mb(max_bytes: int) -> str:
+    return f"{max_bytes / (1024 * 1024):g} MB"
+
+
+def _host_is_private_or_local(host: str) -> bool:
+    lowered = (host or "").strip().lower()
+    if not lowered:
+        return False
+    if lowered in {"localhost", "pc-1.local"}:
+        return True
+
+    try:
+        addr = ipaddress.ip_address(lowered)
+    except ValueError:
+        return False
+
+    return any(
+        (
+            addr.is_loopback,
+            addr.is_private,
+            addr.is_link_local,
+            addr.is_multicast,
+            addr.is_reserved,
+            addr.is_unspecified,
+        )
+    )
+
+
+def validate_remote_image_url(url: str) -> str:
+    candidate = str(url or "").strip()
+    parsed = urlsplit(candidate)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("image_url must use http:// or https://")
+    if not parsed.hostname:
+        raise ValueError("image_url item requires a valid URL")
+    if _host_is_private_or_local(parsed.hostname):
+        raise ValueError("image_url must target a public host")
+
+    try:
+        resolved = socket.getaddrinfo(
+            parsed.hostname,
+            parsed.port or (443 if parsed.scheme == "https" else 80),
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        raise ValueError("image_url host could not be resolved") from exc
+
+    addresses = {entry[4][0] for entry in resolved if entry[4]}
+    if not addresses:
+        raise ValueError("image_url host could not be resolved")
+
+    if any(_host_is_private_or_local(address) for address in addresses):
+        raise ValueError("image_url must target a public host")
+
+    return candidate
 
 
 def endpoint_for_module(module_id: str, config: Dict[str, Any]) -> str:
@@ -61,6 +124,75 @@ def _decode_image_data(item: Dict[str, Any]) -> bytes:
         return base64.b64decode(raw_data, validate=True)
     except Exception as exc:  # noqa: BLE001
         raise ValueError("image_data item is not valid base64") from exc
+
+
+def _read_limited_response_bytes(response, *, max_bytes: int) -> bytes:
+    error_message = f"Remote image is too large. Max {_format_size_limit_mb(max_bytes)}."
+    content_length = (response.headers.get("content-length") or "").strip()
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise ValueError(error_message)
+        except ValueError as exc:
+            if str(exc) == error_message:
+                raise
+
+    if hasattr(response, "iter_content"):
+        chunks = []
+        total = 0
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError(error_message)
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    body = response.content or b""
+    if len(body) > max_bytes:
+        raise ValueError(error_message)
+    return body
+
+
+def fetch_remote_image_bytes(
+    url: str,
+    *,
+    max_bytes: Optional[int] = None,
+) -> bytes:
+    if max_bytes is None:
+        max_bytes = INCOMING_WEBHOOK_REMOTE_IMAGE_MAX_BYTES
+
+    current_url = validate_remote_image_url(url)
+    redirects_followed = 0
+
+    while True:
+        response = requests.get(
+            current_url,
+            timeout=10,
+            stream=True,
+            allow_redirects=False,
+        )
+        try:
+            if response.status_code in {301, 302, 303, 307, 308}:
+                location = (response.headers.get("location") or "").strip()
+                if not location:
+                    response.raise_for_status()
+                if redirects_followed >= INCOMING_WEBHOOK_REMOTE_IMAGE_MAX_REDIRECTS:
+                    raise ValueError("Remote image redirected too many times")
+                current_url = validate_remote_image_url(urljoin(current_url, location))
+                redirects_followed += 1
+                continue
+
+            response.raise_for_status()
+            image_bytes = _read_limited_response_bytes(response, max_bytes=max_bytes)
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
+
+        _validate_raster_image_bytes(image_bytes)
+        return image_bytes
 
 
 def parse_request_payload(
@@ -125,7 +257,9 @@ def parse_request_payload(
                 url = raw_item.get("url")
                 if not isinstance(url, str) or not url:
                     raise ValueError("image_url item requires non-empty 'url'")
-                normalized_items.append({"type": "image_url", "url": url})
+                normalized_items.append(
+                    {"type": "image_url", "url": validate_remote_image_url(url)}
+                )
                 continue
 
             if item_type == "image_data":
@@ -204,11 +338,9 @@ def print_parsed_job(
             printer.print_body(item.get("text") or "")
         elif item_type == "image_url":
             try:
-                response = requests.get(item["url"], timeout=10)
-                response.raise_for_status()
                 _print_image_bytes(
                     printer,
-                    response.content,
+                    fetch_remote_image_bytes(item["url"]),
                     max_height=config.max_image_height_dots,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -323,4 +455,8 @@ def format_print_webhook_receipt(
     printer.print_line()
     printer.print_body("Waiting for inbound webhooks.")
     printer.print_caption(f"Endpoint: {endpoint_for_module(module_id or 'MODULE_ID', config)}")
-    printer.print_caption("Send Authorization: Bearer <token>")
+    token = str(config.get("token") or "").strip()
+    if token:
+        printer.print_caption(f"Authorization: Bearer {token}")
+    else:
+        printer.print_caption("Authorization: disabled")

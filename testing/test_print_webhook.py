@@ -18,10 +18,13 @@ def _make_request(
     *,
     content_type: str,
     token: Optional[str] = None,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> Request:
     headers = [(b"content-type", content_type.encode("latin-1"))]
     if token is not None:
         headers.append((b"authorization", f"Bearer {token}".encode("latin-1")))
+    for key, value in (extra_headers or {}).items():
+        headers.append((key.encode("latin-1"), value.encode("latin-1")))
 
     sent = False
 
@@ -300,6 +303,36 @@ def test_receive_print_webhook_accepts_text_and_schedules_background_print(
     assert len(background_tasks.tasks) == 1
 
 
+def test_receive_print_webhook_rejects_oversized_body_before_reading_entire_payload(
+    monkeypatch,
+):
+    module = _print_module()
+    monkeypatch.setattr(main_module.settings, "modules", {module.id: module})
+    monkeypatch.setattr(
+        main_module.settings,
+        "channels",
+        {1: ChannelConfig(modules=[ChannelModuleAssignment(module_id=module.id, order=0)])},
+    )
+    monkeypatch.setattr(main_module.dial, "read_position", lambda: 1)
+    monkeypatch.setattr(print_webhook, "INCOMING_WEBHOOK_MAX_REQUEST_BYTES", 4)
+
+    request = _make_request(
+        b"hello",
+        content_type="text/plain",
+        token=module.config["token"],
+        extra_headers={"content-length": "5"},
+    )
+    background_tasks = BackgroundTasks()
+
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            main_module.receive_print_webhook("front-door", request, background_tasks)
+        )
+
+    assert excinfo.value.status_code == 413
+    assert "Request body too large" in excinfo.value.detail
+
+
 def test_receive_print_webhook_rejects_unknown_json_item_type(monkeypatch):
     module = _print_module()
     monkeypatch.setattr(main_module.settings, "modules", {module.id: module})
@@ -394,6 +427,25 @@ def test_parse_request_payload_for_json_print_job_decodes_image_data():
     assert isinstance(job["items"][1]["image_bytes"], bytes)
 
 
+def test_parse_request_payload_rejects_private_image_url():
+    module_config = PrintWebhookConfig(token="secret", endpoint_path="front-door")
+    body = (
+        b'{"title":"Door","items":['
+        b'{"type":"image_url","url":"http://127.0.0.1/snapshot.png"}'
+        b"]}"
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        print_webhook.parse_request_payload(
+            content_type="application/json",
+            body=body,
+            config=module_config,
+            module_name="Front Door",
+        )
+
+    assert "public host" in str(excinfo.value)
+
+
 def test_parse_request_payload_uses_module_name_when_json_title_missing():
     module_config = PrintWebhookConfig(
         token="secret",
@@ -439,15 +491,23 @@ def test_print_parsed_job_prints_text_and_remote_image(monkeypatch):
     requested = {}
 
     class _ImageResponse:
-        content = _png_bytes(width=100, height=128)
+        status_code = 200
+        headers = {"content-length": str(len(_png_bytes(width=100, height=128)))}
 
         def raise_for_status(self):
             return None
 
-    def fake_get(url, timeout=10):  # noqa: ARG001
+        def iter_content(self, chunk_size=65536):  # noqa: ARG002
+            yield _png_bytes(width=100, height=128)
+
+        def close(self):
+            return None
+
+    def fake_get(url, timeout=10, stream=True, allow_redirects=False):  # noqa: ARG001
         requested["url"] = url
         return _ImageResponse()
 
+    monkeypatch.setattr(print_webhook, "validate_remote_image_url", lambda url: url)
     monkeypatch.setattr(print_webhook.requests, "get", fake_get)
 
     print_webhook.print_parsed_job(
@@ -471,6 +531,53 @@ def test_print_parsed_job_prints_text_and_remote_image(monkeypatch):
     assert requested["url"] == "https://example.test/snapshot.png"
     assert len(printer.images) == 1
     assert printer.images[0].size == (50, 64)
+
+
+def test_print_parsed_job_prints_error_when_remote_image_exceeds_limit(monkeypatch):
+    printer = _RecordingPrinter()
+    module_config = PrintWebhookConfig(
+        token="secret",
+        endpoint_path="front-door",
+        max_image_height_dots=64,
+    )
+
+    class _ImageResponse:
+        status_code = 200
+        headers = {"content-length": "10"}
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size=65536):  # noqa: ARG002
+            yield b"12345"
+            yield b"67890"
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(print_webhook, "INCOMING_WEBHOOK_REMOTE_IMAGE_MAX_BYTES", 8)
+    monkeypatch.setattr(print_webhook, "validate_remote_image_url", lambda url: url)
+    monkeypatch.setattr(
+        print_webhook.requests,
+        "get",
+        lambda url, timeout=10, stream=True, allow_redirects=False: _ImageResponse(),  # noqa: ARG005
+    )
+
+    print_webhook.print_parsed_job(
+        printer,
+        {
+            "job_type": "json",
+            "title": "Front Door",
+            "items": [
+                {"type": "image_url", "url": "https://example.test/snapshot.png"},
+            ],
+        },
+        module_config,
+        "Print Webhook",
+    )
+
+    assert printer.images == []
+    assert printer.body == ["Error: Could not load remote image."]
 
 
 def test_print_parsed_job_prints_request_metadata_lines():
@@ -525,6 +632,26 @@ def test_build_print_webhook_metadata_lines_respects_config():
         "Type: text/plain",
         "UA: curl/8.7.1",
     ]
+
+
+def test_format_print_webhook_receipt_reflects_auth_mode():
+    printer = _RecordingPrinter()
+
+    print_webhook.format_print_webhook_receipt(
+        printer,
+        config={"endpoint_path": "front-door", "token": "secret-token"},
+        module_name="Front Door",
+        module_id="print-1",
+    )
+    print_webhook.format_print_webhook_receipt(
+        printer,
+        config={"endpoint_path": "front-door", "token": ""},
+        module_name="Front Door",
+        module_id="print-1",
+    )
+
+    assert "Authorization: Bearer secret-token" in printer.captions
+    assert "Authorization: disabled" in printer.captions
 
 
 def test_run_print_webhook_print_job_clears_reservation(monkeypatch):

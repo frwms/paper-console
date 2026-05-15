@@ -8,6 +8,7 @@ import uuid
 import os
 import hmac
 import hashlib
+import json
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1567,39 +1568,54 @@ async def get_settings():
     return settings
 
 
+def _normalize_imported_settings_data(data: dict) -> dict:
+    normalized = dict(data or {})
+
+    channels = normalized.get("channels", {})
+    if isinstance(channels, dict):
+        normalized_channels = {}
+        for key, value in channels.items():
+            try:
+                normalized_channels[int(key)] = value
+            except (ValueError, TypeError):
+                normalized_channels[key] = value
+        normalized["channels"] = normalized_channels
+
+    if "time_sync_mode" not in normalized:
+        normalized["time_sync_mode"] = "manual"
+
+    return normalized
+
+
+def _collect_settings_validation_warnings(new_settings: Settings) -> List[str]:
+    validation_warnings: List[str] = []
+
+    for module_id, module in new_settings.modules.items():
+        if module_id == "unassigned":
+            continue
+
+        try:
+            validate_module_config(module.type, module.config or {})
+        except ValueError as exc:
+            warning = f"{module_id} ({module.type}): {exc}"
+            validation_warnings.append(warning)
+            logging.warning("Validation warning: %s", warning)
+
+    return validation_warnings
+
+
 @app.post("/api/settings", dependencies=[Depends(require_admin_access)])
 async def update_settings(new_settings: Settings, background_tasks: BackgroundTasks):
     """Updates the configuration and saves it to disk."""
     global settings
     import app.config as config_module
-    validation_warnings: List[str] = []
     previous_timezone = getattr(settings, "timezone", None)
     timezone_changed = new_settings.timezone != previous_timezone
 
     # Update in-memory - create new settings object
     settings = new_settings
 
-    # VALIDATE MODULE CONFIGS
-    # Ensure all modules have valid configuration before saving
-    for module_id, module in settings.modules.items():
-        if module_id == "unassigned":
-            continue
-
-        try:
-            # We don't validate unassigned explicitly here since they are just copies
-            # but we definitely validate the configured ones.
-            # Note: module.type is reliable, module.config is what we check.
-            validate_module_config(module.type, module.config or {})
-        except ValueError as e:
-            # Revert in-memory settings on failure
-            # config_module.settings = load_config()  # Reload old config
-            # raise HTTPException(status_code=400, detail=str(e))
-
-            # Log warning but allow save to proceed
-            # This prevents unrelated module validation errors from blocking global settings updates
-            warning = f"{module_id} ({module.type}): {e}"
-            validation_warnings.append(warning)
-            logging.warning("Validation warning: %s", warning)
+    validation_warnings = _collect_settings_validation_warnings(settings)
 
     # Update module-level reference so modules that access app.config.settings will see the update
     config_module.settings = settings
@@ -1614,6 +1630,76 @@ async def update_settings(new_settings: Settings, background_tasks: BackgroundTa
         if timezone_sync.get("status") == "failed":
             logger.warning(
                 "Paper Console timezone saved as %s, but system timezone sync failed: %s",
+                settings.timezone,
+                timezone_sync.get("error") or timezone_sync.get("message"),
+            )
+    if validation_warnings:
+        response["validation_warnings"] = validation_warnings
+    return response
+
+
+@app.get("/api/settings/export", dependencies=[Depends(require_admin_access)])
+async def export_settings():
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    payload = json.dumps(
+        settings.model_dump(exclude_unset=False),
+        indent=4,
+    )
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="pc1-config-{timestamp}.json"',
+        },
+    )
+
+
+@app.post("/api/settings/import", dependencies=[Depends(require_admin_access)])
+async def import_settings(
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """Import settings from a previously exported JSON config payload."""
+    global settings
+    import app.config as config_module
+
+    try:
+        raw_bytes = await request.body()
+        raw_text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Config file must be valid UTF-8 JSON") from exc
+
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Config file is not valid JSON") from exc
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Config file must contain a JSON object")
+
+    try:
+        imported_settings = Settings(**_normalize_imported_settings_data(data))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid config file: {exc}") from exc
+
+    previous_timezone = getattr(settings, "timezone", None)
+    timezone_changed = imported_settings.timezone != previous_timezone
+
+    settings = imported_settings
+    config_module.settings = settings
+    validation_warnings = _collect_settings_validation_warnings(settings)
+    background_tasks.add_task(save_settings_background, settings.model_copy(deep=True))
+
+    response = {
+        "message": "Configuration imported",
+        "config": settings,
+    }
+    if timezone_changed:
+        timezone_sync = _sync_system_timezone(settings.timezone)
+        response["timezone_sync"] = timezone_sync
+        if timezone_sync.get("status") == "failed":
+            logger.warning(
+                "Paper Console timezone imported as %s, but system timezone sync failed: %s",
                 settings.timezone,
                 timezone_sync.get("error") or timezone_sync.get("message"),
             )
@@ -4782,19 +4868,23 @@ async def receive_print_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
 ):
-    body = await request.body()
     try:
         dial_position = dial.read_position()
     except Exception:
         logger.exception("Could not read dial position while checking webhook channel gate")
         dial_position = None
 
-    prepared_job = print_webhook_service.prepare_incoming_job(
+    target = print_webhook_service.resolve_incoming_target(
         modules=settings.modules,
         channels=settings.channels,
         endpoint_path=endpoint_path,
         request=request,
         dial_position=dial_position,
+    )
+    body = await print_webhook_service.read_limited_request_body(request)
+    prepared_job = print_webhook_service.finalize_incoming_job(
+        target=target,
+        content_type=request.headers.get("content-type", ""),
         body=body,
     )
 
