@@ -1067,6 +1067,21 @@ const GeneralSettings = ({
               Maximum lines per print job to prevent endless prints. Set to 0 for no limit (default: 200)
             </p>
           </div>
+          <div className='mt-4'>
+            <label className={labelClass}>Startup Print</label>
+            <label className='flex items-center gap-2 cursor-pointer'>
+              <input
+                type='checkbox'
+                checked={settings.startup_print_enabled ?? true}
+                onChange={(e) => saveGlobalSettings({ startup_print_enabled: e.target.checked })}
+                className='w-4 h-4 accent-black'
+              />
+              <span className='text-sm text-gray-700'>Print "SYSTEM READY" on startup</span>
+            </label>
+            <p className='text-xs text-gray-600 mt-1'>
+              When enabled, a status receipt is printed each time paper-console starts.
+            </p>
+          </div>
         </div>
       </div>
 

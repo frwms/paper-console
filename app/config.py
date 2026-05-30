@@ -273,6 +273,7 @@ class Settings(BaseModel):
     time_sync_mode: str = "manual"  # "manual" or "automatic" for time synchronization mode
     release_channel: Literal["stable", "beta"] = "stable"
     max_print_lines: int = 200  # Maximum lines per print job (0 = no limit)
+    startup_print_enabled: bool = True  # Print "SYSTEM READY" receipt on boot
 
     # Module Instances: Dictionary of module_id -> ModuleInstance
     # These are reusable module configurations that can be assigned to channels

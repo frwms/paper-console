@@ -1010,6 +1010,10 @@ async def check_first_boot():
 
             # If marker exists, just print ready message
             if not is_first_boot:
+                import app.config as config_module
+                if not config_module.settings.startup_print_enabled:
+                    return
+
                 # Visual header with inline icon (no feed before - content starts immediately)
                 printer.print_header("SYSTEM READY", icon="check", icon_size=28)
 
@@ -1021,8 +1025,6 @@ async def check_first_boot():
 
                 # Show channel assignments
                 printer.print_subheader("CHANNELS")
-
-                import app.config as config_module
 
                 configured_settings = config_module.settings
 
