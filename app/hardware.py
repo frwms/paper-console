@@ -9,7 +9,10 @@ _is_raspberry_pi = platform.system() == "Linux" and os.path.exists(
 
 if _is_raspberry_pi:
     try:
-        from app.drivers.printer_serial import PrinterDriver
+        if os.path.exists("/dev/usb/lp0"):
+            from app.drivers.printer_usb import PrinterDriver
+        else:
+            from app.drivers.printer_serial import PrinterDriver
         from app.drivers.dial_gpio import DialDriver
         from app.drivers.button_gpio import ButtonDriver
     except ImportError:

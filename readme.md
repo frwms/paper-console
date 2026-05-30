@@ -232,7 +232,8 @@ paper-console/
 │   ├── wifi_manager.py         # Setup AP and WiFi connection orchestration
 │   ├── data/                   # Bundled offline content and lookup datasets
 │   ├── drivers/
-│   │   ├── printer_serial.py   # Thermal printer (hardware)
+│   │   ├── printer_usb.py      # Thermal printer via USB (/dev/usb/lp0)
+│   │   ├── printer_serial.py   # Thermal printer via TTL serial (fallback)
 │   │   ├── printer_mock.py     # Console / capture (dev)
 │   │   ├── dial_gpio.py / dial_mock.py
 │   │   ├── button_gpio.py / button_mock.py
@@ -411,10 +412,19 @@ Legend: `[X]` = Used, `[ ]` = Empty. The header is 2 pins wide.
 
 ### Thermal Printer
 
-**TTL Serial Connection:**
+**USB Connection (preferred if available):**
+1. Connect the printer via USB cable to any Pi USB port
+2. Device appears as `/dev/usb/lp0` — no driver or serial config needed
+3. `hardware.py` auto-detects `/dev/usb/lp0` and uses `app/drivers/printer_usb.py`
+4. Ensure the service user is in the `lp` group: `sudo usermod -a -G lp $USER`
+   (On a fresh Pi OS install, check with `groups $USER` — it may already be there)
+5. Test without the service: `printf "\x1b\x40Hello\n\n\n\n" > /dev/usb/lp0`
+
+**TTL Serial Connection (fallback when USB is not present):**
 1. Wire according to table above
 2. **Serial port is automatically configured** by `scripts/setup_pi.sh` (disables console, enables hardware)
 3. Device appears as `/dev/serial0` after setup
+4. Used automatically when `/dev/usb/lp0` does not exist
 
 ### Power Supply
 
@@ -430,21 +440,23 @@ Legend: `[X]` = Used, `[ ]` = Empty. The header is 2 pins wide.
 ## 6. Troubleshooting
 
 ### Printer Issues
-* **Device Not Found:**
+* **Device Not Found (USB):**
+  * Check if `/dev/usb/lp0` exists: `ls -la /dev/usb/lp0`
+  * If missing: printer may not be powered on, or USB cable is unplugged
+  * If present but service uses serial: restart the service — `hardware.py` checks at startup
+* **Device Not Found (Serial):**
   * Check if `/dev/serial0` exists: `ls -l /dev/serial*`
   * If missing, run setup script: `sudo scripts/setup_pi.sh` (configures serial automatically)
   * Or manually: `sudo raspi-config` → Interface Options → Serial Port → Enable hardware, Disable console
 * **Permission Denied:**
-  * Ensure user is in `dialout` group: `groups`
-  * Add user: `sudo usermod -a -G dialout $USER` (then log out/in)
+  * USB (`/dev/usb/lp0`): ensure user is in `lp` group — `sudo usermod -a -G lp $USER` (then log out/in)
+  * Serial (`/dev/serial0`): ensure user is in `dialout` group — `sudo usermod -a -G dialout $USER` (then log out/in)
 * **Nothing Prints:**
   * Verify power supply is adequate (5A minimum)
-  * Confirm printer is connected to correct GPIO pins using the wiring table above
-  * Make sure the printer is powered on (indicator lights as expected)
-  * Check for error/status lights or messages on the printer itself (if available)
-  * Test the printer with a simple echo command: `echo "test" > /dev/serial0`
+  * Test USB directly (no service): `printf "\x1b\x40Hello\n\n\n\n" > /dev/usb/lp0`
+  * Test serial directly: `echo "test" > /dev/serial0`
   * Check service logs: `sudo journalctl -u pc-1.service -f`
-  * Confirm no other application is holding the serial port open (use `lsof /dev/serial0`)
+  * For serial: confirm GPIO pin wiring and that no other app holds the port (`lsof /dev/serial0`)
 
 ### Service Issues
   * **Restart Loop:**
