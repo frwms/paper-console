@@ -4,6 +4,7 @@ import { useModuleTypes } from '../hooks/useModuleTypes';
 import WiFiIcon from '../assets/WiFiIcon';
 import WiFiOffIcon from '../assets/WiFiOffIcon';
 import PrintIcon from '../assets/PrintIcon';
+import EyeIcon from '../assets/EyeIcon';
 import ScheduleIcon from '../assets/ScheduleIcon';
 import ArrowUpIcon from '../assets/ArrowUpIcon';
 import ArrowDownIcon from '../assets/ArrowDownIcon';
@@ -15,6 +16,8 @@ const ChannelList = ({
   modules,
   triggerChannelPrint,
   triggerModulePrint,
+  triggerChannelPreview,
+  triggerModulePreview,
   setShowScheduleModal,
   swapChannels,
   setShowEditModuleModal,
@@ -412,6 +415,14 @@ const ChannelList = ({
                     </button>
                     <button
                       type='button'
+                      onClick={() => triggerChannelPreview(pos)}
+                      className='group flex items-center justify-center px-2 py-1 rounded border-2 bg-transparent border-gray-300 hover:border-black hover:bg-white transition-all cursor-pointer'
+                      aria-label={`Preview channel ${pos}`}
+                      title='Preview Channel'>
+                      <EyeIcon className='w-3.5 h-3.5 text-gray-400 group-hover:text-black transition-all' />
+                    </button>
+                    <button
+                      type='button'
                       onClick={() => setShowScheduleModal(pos)}
                       className={`group flex items-center gap-1 px-2 py-1 rounded border-2 transition-all cursor-pointer ${
                         channel.schedule && channel.schedule.length > 0
@@ -550,6 +561,14 @@ const ChannelList = ({
                         aria-label={`Print module ${item.module.name}`}
                         title='Print this module'>
                         <PrintIcon className='w-3 h-3 text-gray-400 hover:text-black transition-colors' />
+                      </button>
+                      <button
+                        type='button'
+                        onClick={() => triggerModulePreview(item.module_id, item.module.name)}
+                        className='px-1.5 py-1 rounded border border-gray-300 hover:border-black hover:bg-white transition-all cursor-pointer'
+                        aria-label={`Preview module ${item.module.name}`}
+                        title='Preview this module'>
+                        <EyeIcon className='w-3 h-3 text-gray-400 hover:text-black transition-colors' />
                       </button>
                       <div className='flex flex-col gap-0.5'>
                         <button
@@ -705,6 +724,14 @@ const ChannelList = ({
                       aria-label={`Print module ${module.name}`}
                       title='Print this module'>
                       <PrintIcon className='w-3 h-3 text-gray-400 hover:text-black transition-colors' />
+                    </button>
+                    <button
+                      type='button'
+                      onClick={() => triggerModulePreview(module.id, module.name)}
+                      className='px-1.5 py-1 rounded border border-gray-300 hover:border-black hover:bg-white transition-all cursor-pointer'
+                      aria-label={`Preview module ${module.name}`}
+                      title='Preview this module'>
+                      <EyeIcon className='w-3 h-3 text-gray-400 hover:text-black transition-colors' />
                     </button>
                     <div className='flex flex-col gap-0.5'>
                       <button

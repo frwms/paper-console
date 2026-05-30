@@ -6,7 +6,7 @@ const StatusMessage = ({ status }) => {
   return (
     <div
       className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-xl text-sm font-medium transition-all transform duration-300 ${
-        status.type === 'success'
+        status.type === 'success' || status.type === 'loading'
           ? 'text-gray-200 shadow-black/50'
           : status.type === 'warning'
             ? 'text-amber-300 shadow-black/50'

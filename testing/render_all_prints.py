@@ -35,7 +35,7 @@ from app.config import (
     CalendarConfig,
 )
 from app.module_registry import get_all_modules, get_module
-from app.drivers.printer_serial import PrinterDriver as SerialPrinterDriver
+from app.drivers.printer_capture import CapturePrinter
 from app.modules import webhook, text, calendar, email_client
 
 SNAPSHOT_HISTORY_DATE = "1969-07-20"
@@ -165,34 +165,6 @@ SNAPSHOT_NOTE_DOC = {
         },
     ],
 }
-class CapturePrinter(SerialPrinterDriver):
-    """Serial printer driver that captures raster bitmaps instead of sending."""
-
-    def __init__(self, width: int = PRINTER_WIDTH):
-        # Skip serial initialization entirely in offline render mode.
-        super().__init__(width=width, init_serial=False)
-        self.captured_bitmaps = []
-
-    def _send_bitmap(self, img):  # type: ignore[override]
-        if img is not None:
-            self.captured_bitmaps.append(img.copy())
-
-    def blip(self):
-        # Skip tactile feedback in offline render mode.
-        return
-
-    def feed_direct(self, lines: int = 3):
-        # No hardware feed in offline render mode.
-        return
-
-    def clear_hardware_buffer(self):
-        # Keep software state reset behavior only.
-        self.print_buffer.clear()
-        self.lines_printed = 0
-        self.max_lines = 0
-        self._max_lines_hit = False
-
-
 def _build_snapshot_calendar_ics(reference_day: Optional[date] = None) -> str:
     today = reference_day or date.today()
     timed_one = datetime.combine(today, datetime.min.time()).replace(hour=9, minute=30)

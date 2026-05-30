@@ -50,6 +50,7 @@ function App() {
   const [authInfo, setAuthInfo] = useState(null);
   const [authError, setAuthError] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [previewModal, setPreviewModal] = useState(null); // { title, imageUrl } | null
 
   // Debounce timers for module updates
   // Debounce timer for location search (respects Nominatim 1 req/sec limit)
@@ -267,6 +268,44 @@ function App() {
     }
   };
 
+  const triggerChannelPreview = async (position) => {
+    setStatus({ type: 'loading', message: `Generating preview for Channel ${position}...` });
+    try {
+      const response = await adminAuthFetch(`/api/preview/channel/${position}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Preview failed' }));
+        throw new Error(err.detail || 'Preview failed');
+      }
+      setStatus({ type: '', message: '' });
+      setPreviewModal({ title: `Channel ${position}`, imageUrl: `/api/preview/channel/${position}` });
+    } catch (err) {
+      console.error('Error generating channel preview:', err);
+      setStatus({ type: 'error', message: err.message || 'Preview failed' });
+      setTimeout(() => setStatus({ type: '', message: '' }), 3000);
+    }
+  };
+
+  const triggerModulePreview = async (moduleId, moduleName) => {
+    const label = moduleName || 'Module';
+    setStatus({ type: 'loading', message: `Generating preview for ${label}...` });
+    try {
+      const response = await adminAuthFetch(`/api/preview/module/${moduleId}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Preview failed' }));
+        throw new Error(err.detail || 'Preview failed');
+      }
+      setStatus({ type: '', message: '' });
+      setPreviewModal({ title: label, imageUrl: `/api/preview/module/${moduleId}` });
+    } catch (err) {
+      console.error('Error generating module preview:', err);
+      setStatus({ type: 'error', message: err.message || 'Preview failed' });
+      setTimeout(() => setStatus({ type: '', message: '' }), 3000);
+    }
+  };
+
+  const closePreviewModal = () => {
+    setPreviewModal(null);
+  };
 
   // --- Settings Save ---
 
@@ -877,6 +916,8 @@ function App() {
               modules={modules}
               triggerChannelPrint={triggerChannelPrint}
               triggerModulePrint={triggerModulePrint}
+              triggerChannelPreview={triggerChannelPreview}
+              triggerModulePreview={triggerModulePreview}
               setShowScheduleModal={setShowScheduleModal}
               swapChannels={swapChannels}
               setShowEditModuleModal={setShowEditModuleModal}
@@ -952,6 +993,37 @@ function App() {
         <APInstructionsModal show={showAPInstructions} wifiStatus={wifiStatus} />
 
         <StatusMessage status={status} />
+
+        {/* Print Preview Modal */}
+        {previewModal && (
+          <div
+            className='fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-8 px-4'
+            style={{ backgroundColor: 'rgba(0,0,0,0.65)' }}
+            onClick={closePreviewModal}>
+            <div
+              className='relative bg-white rounded-sm shadow-2xl'
+              style={{ width: '340px', maxWidth: '100%' }}
+              onClick={(e) => e.stopPropagation()}>
+              <div className='flex items-center justify-between px-3 py-2 border-b border-gray-200'>
+                <span className='text-xs font-bold uppercase tracking-widest text-gray-500'>
+                  Preview — {previewModal.title}
+                </span>
+                <button
+                  type='button'
+                  onClick={closePreviewModal}
+                  className='text-gray-400 hover:text-black text-lg leading-none cursor-pointer px-1'
+                  aria-label='Close preview'>
+                  ×
+                </button>
+              </div>
+              <img
+                src={previewModal.imageUrl}
+                alt={`Preview of ${previewModal.title}`}
+                style={{ width: '100%', display: 'block', imageRendering: 'pixelated' }}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

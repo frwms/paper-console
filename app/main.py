@@ -4439,12 +4439,13 @@ async def update_channel_schedule(
 # --- EVENT ROUTER ---
 
 
-def execute_module(module: ModuleInstance, *, scheduled: bool = False) -> bool:
+def execute_module(module: ModuleInstance, *, scheduled: bool = False, printer_override=None) -> bool:
     """
     Execute a single module instance using the module registry.
 
     Returns True if successful, False if failed.
     """
+    _printer = printer_override if printer_override is not None else printer
     module_type = module.type
     config = module.config or {}
     module_name = module.name or module_type.upper()
@@ -4458,24 +4459,24 @@ def execute_module(module: ModuleInstance, *, scheduled: bool = False) -> bool:
         # These require config to be parsed into specific types before calling
         if module_type == "webhook":
             action_config = WebhookConfig(**config)
-            webhook.run_webhook(action_config, printer, module_name)
+            webhook.run_webhook(action_config, _printer, module_name)
             return True
 
         elif module_type == "text":
             text_config = TextConfig(**config)
-            text.format_text_receipt(printer, text_config, module_name)
+            text.format_text_receipt(_printer, text_config, module_name)
             return True
 
         elif module_type == "calendar":
             cal_config = CalendarConfig(**config)
-            calendar.format_calendar_receipt(printer, cal_config, module_name)
+            calendar.format_calendar_receipt(_printer, cal_config, module_name)
             return True
 
         elif module_type == "email":
             # Email has special handling - fetch emails first, then format
             emails = email_client.fetch_emails(config)
             email_client.format_email_receipt(
-                printer, messages=emails, config=config, module_name=module_name
+                _printer, messages=emails, config=config, module_name=module_name
             )
             return True
 
@@ -4497,32 +4498,32 @@ def execute_module(module: ModuleInstance, *, scheduled: bool = False) -> bool:
                 execute_kwargs["scheduled"] = scheduled
             if execute_kwargs:
                 module_def.execute_fn(
-                    printer,
+                    _printer,
                     config,
                     module_name,
                     **execute_kwargs,
                 )
             else:
-                module_def.execute_fn(printer, config, module_name)
+                module_def.execute_fn(_printer, config, module_name)
             return True
         else:
             # Unknown module type
-            printer.print_text(f"{module_name}")
-            printer.print_line()
-            printer.print_text("This module type is not")
-            printer.print_text("recognized. Please check")
-            printer.print_text("your settings.")
+            _printer.print_text(f"{module_name}")
+            _printer.print_line()
+            _printer.print_text("This module type is not")
+            _printer.print_text("recognized. Please check")
+            _printer.print_text("your settings.")
             return False
 
     except Exception as e:
         # Log the error for debugging
         logging.error(f"Error executing module '{module_type}': {e}")
         # Print a friendly error message
-        printer.print_text(f"{module_name}")
-        printer.print_line()
-        printer.print_text("Could not load this content.")
-        printer.print_text("Please check your settings")
-        printer.print_text("or try again later.")
+        _printer.print_text(f"{module_name}")
+        _printer.print_line()
+        _printer.print_text("Could not load this content.")
+        _printer.print_text("Please check your settings")
+        _printer.print_text("or try again later.")
         return False
 
 
@@ -4844,6 +4845,105 @@ async def print_module_direct(module_id: str):
     finally:
         # Always mark print as complete (thread-safe)
         _clear_print_reservation(clear_hold=False)
+
+@app.get(
+    "/api/preview/channel/{position}",
+    dependencies=[Depends(require_admin_access)],
+    response_class=Response,
+)
+async def preview_channel(position: int):
+    """Render a channel to a PNG image and return it (no hardware I/O)."""
+    import io
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from app.drivers.printer_capture import CapturePrinter
+    from app.selection_mode import exit_selection_mode
+
+    if position < 1 or position > 8:
+        raise HTTPException(status_code=400, detail="Position must be 1-8")
+
+    channel = settings.channels.get(position)
+    if not channel:
+        raise HTTPException(status_code=404, detail=f"Channel {position} not configured")
+
+    sorted_modules = sorted(
+        [
+            settings.modules[a.module_id]
+            for a in (channel.modules or [])
+            if a.module_id in settings.modules
+        ],
+        key=lambda m: next(
+            (a.order for a in (channel.modules or []) if a.module_id == m.id), 0
+        ),
+    )
+    if not sorted_modules:
+        raise HTTPException(status_code=404, detail=f"Channel {position} has no modules")
+
+    def _render() -> bytes:
+        exit_selection_mode()
+        cap = CapturePrinter()
+        cap.reset_buffer(max_lines=getattr(settings, "max_print_lines", 200))
+        for i, module in enumerate(sorted_modules):
+            execute_module(module, printer_override=cap)
+            if i < len(sorted_modules) - 1:
+                cap.feed(2)
+        cap.flush_buffer()
+        if not cap.captured_bitmaps:
+            raise RuntimeError("No bitmap rendered")
+        img = cap.captured_bitmaps[-1].rotate(180).convert("L")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    try:
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            png_bytes = await loop.run_in_executor(executor, _render)
+        return Response(content=png_bytes, media_type="image/png")
+    except Exception as exc:
+        logging.error(f"preview_channel error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get(
+    "/api/preview/module/{module_id}",
+    dependencies=[Depends(require_admin_access)],
+    response_class=Response,
+)
+async def preview_module_endpoint(module_id: str):
+    """Render a single module to a PNG image and return it (no hardware I/O)."""
+    import io
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from app.drivers.printer_capture import CapturePrinter
+    from app.selection_mode import exit_selection_mode
+
+    module = settings.modules.get(module_id)
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+
+    def _render() -> bytes:
+        exit_selection_mode()
+        cap = CapturePrinter()
+        cap.reset_buffer(max_lines=getattr(settings, "max_print_lines", 200))
+        execute_module(module, printer_override=cap)
+        cap.flush_buffer()
+        if not cap.captured_bitmaps:
+            raise RuntimeError("No bitmap rendered")
+        img = cap.captured_bitmaps[-1].rotate(180).convert("L")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    try:
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            png_bytes = await loop.run_in_executor(executor, _render)
+        return Response(content=png_bytes, media_type="image/png")
+    except Exception as exc:
+        logging.error(f"preview_module error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 def _print_print_webhook_job_sync(module_id: str, job: dict) -> None:
     print_webhook_service.print_job(
