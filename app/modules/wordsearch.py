@@ -343,7 +343,7 @@ def execute_wordsearch(printer, config: Dict[str, Any], module_name: str = None)
     
     # 4. Print Layout
     printer.print_header(module_name or "WORD SEARCH", icon="magnifying-glass")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_subheader(f"Level: {difficulty}")
     printer.feed(1)
 

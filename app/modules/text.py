@@ -34,7 +34,7 @@ def format_text_receipt(printer: PrinterDriver, config: TextConfig, module_name:
     """Prints a static text note from a TipTap JSON document."""
     header_label = module_name or "NOTE"
     printer.print_header(header_label, icon="note")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
     
     content_doc = _normalize_content_doc(config.content_doc)

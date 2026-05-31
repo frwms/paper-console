@@ -117,7 +117,7 @@ def format_news_receipt(
 
     # Header with date
     printer.print_header(module_name or "NEWS", icon="newspaper")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
 
     if not news_data:

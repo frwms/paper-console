@@ -5,6 +5,7 @@ import ChannelList from './components/ChannelList';
 import AddModuleModal from './components/AddModuleModal';
 import EditModuleModal from './components/EditModuleModal';
 import ScheduleModal from './components/ScheduleModal';
+import ChannelSettingsModal from './components/ChannelSettingsModal';
 import APInstructionsModal from './components/APInstructionsModal';
 import StatusMessage from './components/StatusMessage';
 import ResetSettingsButton from './components/ResetSettingsButton';
@@ -46,6 +47,7 @@ function App() {
   const [showEditModuleModal, setShowEditModuleModal] = useState(null); // module ID or null
   const [editingModule, setEditingModule] = useState(null); // Local copy of module being edited
   const [showScheduleModal, setShowScheduleModal] = useState(null); // channel position or null
+  const [showChannelSettingsModal, setShowChannelSettingsModal] = useState(null); // channel position or null
   const [showAPInstructions, setShowAPInstructions] = useState(false);
   const [authInfo, setAuthInfo] = useState(null);
   const [authError, setAuthError] = useState('');
@@ -212,6 +214,31 @@ function App() {
     }, 500); // 500ms debounce
   };
 
+  const updateChannelOptions = async (position, options) => {
+    try {
+      const params = new URLSearchParams({
+        only_one_date: options.only_one_date,
+        invert_header_style: options.invert_header_style,
+        show_time: options.show_time ?? true,
+        day_format: options.day_format ?? 'full',
+      });
+      const response = await adminAuthFetch(`/api/channels/${position}/options?${params}`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) throw new Error('Failed to update channel options');
+
+      const data = await response.json();
+      setSettings((prev) => ({
+        ...prev,
+        channels: { ...prev.channels, [position]: data.channel },
+      }));
+    } catch (err) {
+      console.error('Error updating channel options:', err);
+      setStatus({ type: 'error', message: 'Failed to update channel settings' });
+    }
+  };
+
   const updateChannelSchedule = async (position, schedule) => {
     try {
       const response = await adminAuthFetch(`/api/channels/${position}/schedule`, {
@@ -276,8 +303,10 @@ function App() {
         const err = await response.json().catch(() => ({ detail: 'Preview failed' }));
         throw new Error(err.detail || 'Preview failed');
       }
+      const blob = await response.blob();
+      const imageUrl = URL.createObjectURL(blob);
       setStatus({ type: '', message: '' });
-      setPreviewModal({ title: `Channel ${position}`, imageUrl: `/api/preview/channel/${position}` });
+      setPreviewModal({ title: `Channel ${position}`, imageUrl });
     } catch (err) {
       console.error('Error generating channel preview:', err);
       setStatus({ type: 'error', message: err.message || 'Preview failed' });
@@ -294,8 +323,10 @@ function App() {
         const err = await response.json().catch(() => ({ detail: 'Preview failed' }));
         throw new Error(err.detail || 'Preview failed');
       }
+      const blob = await response.blob();
+      const imageUrl = URL.createObjectURL(blob);
       setStatus({ type: '', message: '' });
-      setPreviewModal({ title: label, imageUrl: `/api/preview/module/${moduleId}` });
+      setPreviewModal({ title: label, imageUrl });
     } catch (err) {
       console.error('Error generating module preview:', err);
       setStatus({ type: 'error', message: err.message || 'Preview failed' });
@@ -304,6 +335,9 @@ function App() {
   };
 
   const closePreviewModal = () => {
+    if (previewModal?.imageUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(previewModal.imageUrl);
+    }
     setPreviewModal(null);
   };
 
@@ -919,6 +953,7 @@ function App() {
               triggerChannelPreview={triggerChannelPreview}
               triggerModulePreview={triggerModulePreview}
               setShowScheduleModal={setShowScheduleModal}
+              setShowChannelSettingsModal={setShowChannelSettingsModal}
               swapChannels={swapChannels}
               setShowEditModuleModal={setShowEditModuleModal}
               setEditingModule={setEditingModule}
@@ -988,6 +1023,13 @@ function App() {
           onClose={() => setShowScheduleModal(null)}
           onUpdate={(newSchedule) => updateChannelSchedule(showScheduleModal, newSchedule)}
           timeFormat={settings.time_format}
+        />
+
+        <ChannelSettingsModal
+          position={showChannelSettingsModal}
+          channel={settings.channels?.[showChannelSettingsModal] || {}}
+          onClose={() => setShowChannelSettingsModal(null)}
+          onUpdate={(opts) => updateChannelOptions(showChannelSettingsModal, opts)}
         />
 
         <APInstructionsModal show={showAPInstructions} wifiStatus={wifiStatus} />

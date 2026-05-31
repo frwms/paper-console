@@ -32,7 +32,7 @@ def format_system_monitor_receipt(
 
     # Header
     printer.print_header(module_name or "SYSTEM", icon="desktop")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
 
     # Network Info

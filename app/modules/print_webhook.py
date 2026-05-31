@@ -304,7 +304,7 @@ def print_parsed_job(
 ) -> None:
     header = (job.get("title") or module_name or "WEBHOOK").strip()
     printer.print_header(header, icon="plugs")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
 
     subtitle = (job.get("subtitle") or "").strip()
     if subtitle:
@@ -451,7 +451,7 @@ def format_print_webhook_receipt(
     module_name = module_name or "PRINT WEBHOOK"
 
     printer.print_header(module_name, icon="plugs")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
     printer.print_body("Waiting for inbound webhooks.")
     printer.print_caption(f"Endpoint: {endpoint_for_module(module_id or 'MODULE_ID', config)}")

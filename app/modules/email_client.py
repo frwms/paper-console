@@ -431,7 +431,7 @@ def format_email_receipt(
 
     if not messages:
         printer.print_header(header_name, icon="envelope")
-        printer.print_caption(format_print_datetime())
+        printer.print_module_date()
         printer.print_line()
         if _LAST_FETCH_ERROR == "auth_failed":
             printer.print_body("Authentication failed.")
@@ -444,7 +444,7 @@ def format_email_receipt(
         return
 
     printer.print_header(f"{header_name} ({len(messages)})", icon="envelope-open")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
 
     for i, msg in enumerate(messages):

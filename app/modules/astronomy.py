@@ -394,7 +394,7 @@ def format_astronomy_receipt(printer, config: Dict[str, Any] = None, module_name
     data = get_almanac_data()
     
     printer.print_header(module_name or "ASTRONOMY", icon="moon-stars")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
     
     # Location

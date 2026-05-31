@@ -4438,6 +4438,52 @@ async def update_channel_schedule(
     return {"message": "Schedule updated", "channel": settings.channels[position]}
 
 
+@app.post(
+    "/api/channels/{position}/options",
+    dependencies=[Depends(require_admin_access)],
+)
+async def update_channel_options(
+    position: int,
+    only_one_date: bool,
+    invert_header_style: bool,
+    show_time: bool,
+    day_format: str,
+    background_tasks: BackgroundTasks,
+):
+    """Update print layout options for a channel."""
+    global settings
+
+    if position not in settings.channels:
+        settings.channels[position] = ChannelConfig(modules=[])
+
+    settings.channels[position].only_one_date = only_one_date
+    settings.channels[position].invert_header_style = invert_header_style
+    settings.channels[position].show_time = show_time
+    settings.channels[position].day_format = day_format
+    background_tasks.add_task(save_settings_background, settings.model_copy(deep=True))
+
+    return {"message": "Options updated", "channel": settings.channels[position]}
+
+
+def _build_channel_date_line(channel, now, settings) -> str:
+    """Build the single date/time string for the channel-level date header."""
+    from app.config import format_time
+    day_format = getattr(channel, "day_format", "full")
+    show_time = getattr(channel, "show_time", True)
+
+    if day_format == "short":
+        date_str = now.strftime("%a, %B %d, %Y")
+    elif day_format == "none":
+        date_str = now.strftime("%B %d, %Y")
+    else:
+        date_str = now.strftime("%A, %B %d, %Y")
+
+    if show_time:
+        time_format = getattr(settings, "time_format", None)
+        return f"{date_str}  {format_time(now, time_format)}"
+    return date_str
+
+
 # --- EVENT ROUTER ---
 
 
@@ -4543,6 +4589,10 @@ async def trigger_channel(position: int, *, scheduled: bool = False):
 
     def _do_print():
         """Synchronous function that does the actual printing work."""
+        # Always reset per-channel print options at start of each job
+        if hasattr(printer, "set_channel_options"):
+            printer.set_channel_options()
+
         # Instant tactile feedback - tiny paper blip (2 dots, ~0.01")
         if hasattr(printer, "blip"):
             printer.blip()
@@ -4588,13 +4638,32 @@ async def trigger_channel(position: int, *, scheduled: bool = False):
                 else:
                     standard_modules.append(module)
 
+        # Single date header: print date/time once and suppress per-module dates
+        if channel.only_one_date:
+            from app.config import current_datetime
+            now = current_datetime()
+            date_line = _build_channel_date_line(channel, now, settings)
+            if channel.invert_header_style:
+                printer.print_header(date_line)
+            else:
+                printer.print_subheader(date_line)
+            printer.feed(1)  # spacing only — no divider after the date
+            if hasattr(printer, "set_channel_options"):
+                printer.set_channel_options(
+                    skip_module_date=True,
+                    use_subheader_for_module_headers=channel.invert_header_style,
+                )
+
         # 1. Execute all standard modules first
         for module in standard_modules:
             execute_module(module, scheduled=scheduled)
 
             # Separator between modules (unless it's the last standard one)
             if module != standard_modules[-1]:
-                printer.feed(2)
+                if channel.only_one_date:
+                    printer.feed(2)
+                else:
+                    printer.feed(2)
 
             # Check for max lines exceeded
             if (
@@ -4885,14 +4954,36 @@ async def preview_channel(position: int):
         exit_selection_mode()
         cap = CapturePrinter()
         cap.reset_buffer(max_lines=getattr(settings, "max_print_lines", 200))
+
+        if channel.only_one_date:
+            from app.config import current_datetime
+            now = current_datetime()
+            date_line = _build_channel_date_line(channel, now, settings)
+            if channel.invert_header_style:
+                cap.print_header(date_line)
+            else:
+                cap.print_subheader(date_line)
+            cap.feed(1)
+            cap.set_channel_options(
+                skip_module_date=True,
+                use_subheader_for_module_headers=channel.invert_header_style,
+            )
+
         for i, module in enumerate(sorted_modules):
             execute_module(module, printer_override=cap)
             if i < len(sorted_modules) - 1:
-                cap.feed(2)
+                if channel.only_one_date:
+                    cap.feed(2)
+                else:
+                    cap.feed(2)
         cap.flush_buffer()
         if not cap.captured_bitmaps:
             raise RuntimeError("No bitmap rendered")
+        from PIL import ImageOps
         img = cap.captured_bitmaps[-1].rotate(180).convert("L")
+        bbox = ImageOps.invert(img).getbbox()
+        if bbox:
+            img = img.crop((0, 0, img.width, min(bbox[3] + 4, img.height)))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
@@ -4932,7 +5023,11 @@ async def preview_module_endpoint(module_id: str):
         cap.flush_buffer()
         if not cap.captured_bitmaps:
             raise RuntimeError("No bitmap rendered")
+        from PIL import ImageOps
         img = cap.captured_bitmaps[-1].rotate(180).convert("L")
+        bbox = ImageOps.invert(img).getbbox()
+        if bbox:
+            img = img.crop((0, 0, img.width, min(bbox[3] + 4, img.height)))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()

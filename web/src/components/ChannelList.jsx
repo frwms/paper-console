@@ -9,6 +9,7 @@ import ScheduleIcon from '../assets/ScheduleIcon';
 import ArrowUpIcon from '../assets/ArrowUpIcon';
 import ArrowDownIcon from '../assets/ArrowDownIcon';
 import WarningIcon from '../assets/WarningIcon';
+import PreferencesIcon from '../assets/PreferencesIcon';
 import { getModuleValidationIssueCount } from '../lib/moduleValidation';
 
 const ChannelList = ({
@@ -19,6 +20,7 @@ const ChannelList = ({
   triggerChannelPreview,
   triggerModulePreview,
   setShowScheduleModal,
+  setShowChannelSettingsModal,
   swapChannels,
   setShowEditModuleModal,
   setEditingModule,
@@ -436,6 +438,21 @@ const ChannelList = ({
                       title='Configure Schedule'>
                       <ScheduleIcon className={`w-3.5 h-3.5 transition-all ${channel.schedule?.length > 0 ? '' : 'text-gray-400 group-hover:text-black'}`} style={channel.schedule?.length > 0 ? { color: 'var(--color-brass)' } : {}} />
                       <span className={`text-xs font-bold ${channel.schedule?.length > 0 ? '' : 'text-gray-400 group-hover:text-black'}`} style={channel.schedule?.length > 0 ? { color: 'var(--color-brass)' } : {}}>{channel.schedule?.length || 0}</span>
+                    </button>
+                    <button
+                      type='button'
+                      onClick={() => setShowChannelSettingsModal(pos)}
+                      className={`group flex items-center justify-center px-2 py-1 rounded border-2 transition-all cursor-pointer ${
+                        channel.only_one_date
+                          ? 'bg-transparent shadow-sm'
+                          : 'bg-transparent border-gray-300 hover:border-black hover:bg-white'
+                      }`}
+                      style={channel.only_one_date ? { color: 'var(--color-brass)', borderColor: 'var(--color-brass)' } : {}}
+                      onMouseEnter={(e) => { if (channel.only_one_date) e.currentTarget.style.backgroundColor = 'var(--color-brass-10)'; }}
+                      onMouseLeave={(e) => { if (channel.only_one_date) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      aria-label={`Configure settings for channel ${pos}`}
+                      title='Channel Settings'>
+                      <PreferencesIcon className={`w-3.5 h-3.5 transition-all ${channel.only_one_date ? '' : 'text-gray-400 group-hover:text-black'}`} style={channel.only_one_date ? { color: 'var(--color-brass)' } : {}} />
                     </button>
                   </div>
                 </div>

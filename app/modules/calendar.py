@@ -538,7 +538,7 @@ def format_calendar_receipt(
 
     header_label = module_name or "CALENDAR"
     printer.print_header(header_label, icon="calendar-blank")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.feed(1)
 
     # Collect calendar sources

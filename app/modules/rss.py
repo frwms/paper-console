@@ -173,7 +173,7 @@ def format_rss_receipt(printer, config: Dict[str, Any] = None, module_name: str 
 
     # Header
     printer.print_header(module_name or "RSS FEEDS", icon="rss")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
 
     if not articles:

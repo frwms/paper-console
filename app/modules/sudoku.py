@@ -256,7 +256,7 @@ def format_sudoku_receipt(
     grid = generate_puzzle(difficulty)
 
     printer.print_header(module_name or "SUDOKU", icon="grid-nine")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_subheader(f"Difficulty: {difficulty.title()}")
 
     # Render grid as full width (384 dots - 4px borders) / 9 cells = ~42px per cell

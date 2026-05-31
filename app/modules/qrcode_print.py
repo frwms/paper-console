@@ -155,7 +155,7 @@ def format_qrcode_receipt(printer: PrinterDriver, config: dict, module_name: str
     header_label = module_name or "QR CODE"
     
     printer.print_header(header_label)
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
     
     # Generate QR code data based on type

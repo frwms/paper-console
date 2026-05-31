@@ -95,6 +95,9 @@ class PrinterDriver:
         self.lines_printed = 0
         self.max_lines = 0  # 0 = no limit, set by reset_buffer
         self._max_lines_hit = False  # Flag set when max lines exceeded during flush
+        self._skip_module_date = False
+        self._use_subheader_for_module_headers = False
+        self._skip_post_header_line = False
 
         # Cutter feed space in dots (24 dots ~= 1 line).
         # Applied as an explicit post-print feed command for reliability.
@@ -532,9 +535,13 @@ class PrinterDriver:
             return self._render_op_article_block(img, draw, y, op_data, dry_run)
         elif op_type == "qr":
             return self._render_op_qr(img, y, op_data, dry_run)
+        elif op_type == "divider":
+            return self._render_op_divider(draw, y, op_data, dry_run)
+        elif op_type == "spacer":
+            return (op_data.get("height", self.SPACING_MEDIUM), 0)
         elif op_type == "feed":
             return (op_data * self.SPACING_LARGE, 0)
-        
+
         return (0, 0)
 
     def _render_op_styled(self, draw: ImageDraw.Draw, y: int, op_data: dict, dry_run: bool) -> tuple[int, int]:
@@ -604,27 +611,32 @@ class PrinterDriver:
 
         content_width = self._get_content_width()
         left_margin = self._get_left_margin()
-        
-        # Adjust box width to fit within content area
-        # Box uses SPACING_SMALL as right margin relative to content width? 
-        # Original: box_width = self.PRINTER_WIDTH_DOTS - self.SPACING_SMALL
-        # This implies a right margin of SPACING_SMALL (4px)
-        # So we should use content_width - (SPACING_SMALL - 2)? 
-        # If content_width accounts for right margin of 2px.
-        # Let's keep the box width relative to content width.
         box_width = content_width - (self.SPACING_SMALL - 2)
-        
-        box_height = max(text_height, icon_size) + (padding * 2) + (border * 2)
-        
+
+        # Max pixel width available for text inside the box
+        icon_spacing = 6 if icon_type else 0
+        icon_reserve = icon_size + icon_spacing if icon_type else 0
+        text_max_width = box_width - 2 * border - 2 * padding - icon_reserve
+
+        # Wrap text if it overflows — icons keep single-line behaviour
+        if not icon_type and font:
+            text_lines = self._wrap_text_by_width(text, font, text_max_width)
+        else:
+            text_lines = [text]
+        num_lines = max(len(text_lines), 1)
+
+        text_block_height = num_lines * text_height
+        box_height = max(text_block_height, icon_size) + (padding * 2) + (border * 2)
+
         if not dry_run and draw:
             box_x = left_margin
             box_y = y + 2
-            
+
             # Draw outer rectangle (black border)
             draw.rectangle(
                 [box_x, box_y, box_x + box_width, box_y + box_height], fill=0
             )
-            # Draw inner rectangle (white) - creates border effect
+            # Draw inner rectangle (white) — creates border effect
             draw.rectangle(
                 [
                     box_x + border,
@@ -635,36 +647,40 @@ class PrinterDriver:
                 fill=1,
             )
 
-            # Calculate content layout
-            if font:
-                bbox = font.getbbox(text)
-                text_width = bbox[2] - bbox[0] if bbox else len(text) * 10
-            else:
-                text_width = len(text) * 10
-
-            icon_spacing = 6 if icon_type else 0
-            total_content_width = (
-                text_width + icon_size + icon_spacing if icon_type else text_width
-            )
-
-            content_start_x = box_x + (box_width - total_content_width) // 2
             content_y = box_y + border + padding
 
             if icon_type:
+                # Single-line layout with icon
+                if font:
+                    bbox = font.getbbox(text)
+                    text_width = bbox[2] - bbox[0] if bbox else len(text) * 10
+                else:
+                    text_width = len(text) * 10
+                total_content_width = text_width + icon_reserve
+                content_start_x = box_x + (box_width - total_content_width) // 2
                 icon_x = content_start_x
                 icon_y = content_y + (text_height - icon_size) // 2
                 self._draw_icon(draw, icon_x, icon_y, icon_type, icon_size)
-
-            text_x = (
-                content_start_x + icon_size + icon_spacing
-                if icon_type
-                else content_start_x
-            )
-            text_y = content_y
-            if font:
-                draw.text((text_x, text_y), text, font=font, fill=0)
+                text_x = content_start_x + icon_reserve
+                text_y = content_y
+                if font:
+                    draw.text((text_x, text_y), text, font=font, fill=0)
+                else:
+                    draw.text((text_x, text_y), text, fill=0)
             else:
-                draw.text((text_x, text_y), text, fill=0)
+                # Multi-line layout — each line centered independently
+                for i, line in enumerate(text_lines):
+                    if font:
+                        bbox = font.getbbox(line)
+                        line_width = bbox[2] - bbox[0] if bbox else len(line) * 10
+                    else:
+                        line_width = len(line) * 10
+                    text_x = box_x + (box_width - line_width) // 2
+                    text_y = content_y + i * text_height
+                    if font:
+                        draw.text((text_x, text_y), line, font=font, fill=0)
+                    else:
+                        draw.text((text_x, text_y), line, fill=0)
 
         # 2px margin top + box height
         return (2 + box_height, self.SPACING_MEDIUM)
@@ -682,6 +698,16 @@ class PrinterDriver:
             
         # Top margin + icon size
         return (self.SPACING_SMALL + size, self.SPACING_SMALL)
+
+    def _render_op_divider(self, draw: ImageDraw.Draw, y: int, op_data: dict, dry_run: bool) -> tuple[int, int]:
+        """Draw a solid 1px horizontal rule, with equal gaps above and below."""
+        gap = op_data.get("gap", self.SPACING_MEDIUM)  # 8px each side → total ≈ feed(1)
+        left_margin = self._get_left_margin()
+        right_edge = self.PRINTER_WIDTH_DOTS - 2
+        if not dry_run and draw:
+            line_y = y + gap
+            draw.line([(left_margin, line_y), (right_edge, line_y)], fill=0, width=1)
+        return (gap * 2 + 1, 0)
 
     def _render_op_image(self, img: Image.Image, y: int, op_data: dict, dry_run: bool) -> tuple[int, int]:
         image = op_data.get("image")
@@ -1384,6 +1410,22 @@ class PrinterDriver:
             # Empty strings represent blank lines (preserved for spacing)
             self.print_buffer.append(("styled", {"text": line, "style": style}))
 
+    def set_channel_options(
+        self,
+        skip_module_date: bool = False,
+        use_subheader_for_module_headers: bool = False,
+    ):
+        """Set per-channel print options; call with defaults to reset."""
+        self._skip_module_date = skip_module_date
+        self._use_subheader_for_module_headers = use_subheader_for_module_headers
+        self._skip_post_header_line = False
+
+    def print_module_date(self, dt=None):
+        """Print the module date/time caption unless suppressed by channel options."""
+        if not self._skip_module_date:
+            from app.config import format_print_datetime
+            self.print_caption(format_print_datetime(dt))
+
     def print_header(self, text: str, icon: str = None, icon_size: int = 24):
         """Print large bold header text in a drawn box.
 
@@ -1392,19 +1434,33 @@ class PrinterDriver:
             icon: Optional icon type to display inline (e.g., "check", "home")
             icon_size: Size of icon in pixels (default 24)
         """
-        # Add a box operation to the buffer
         if len(self.print_buffer) >= self.MAX_BUFFER_SIZE:
             self.flush_buffer()
-        box_data = {
-            "text": text.upper(),
-            "style": "bold_lg",
-            "padding": 8,  # pixels of padding inside box
-            "border": 2,  # border thickness in pixels
-        }
-        if icon:
-            box_data["icon"] = icon
-            box_data["icon_size"] = icon_size
-        self.print_buffer.append(("box", box_data))
+        if self._use_subheader_for_module_headers:
+            # Smaller box — same border style as main header but base font size and less padding
+            box_data = {
+                "text": text.upper(),
+                "style": "bold",
+                "padding": 4,
+                "border": 2,
+            }
+            if icon:
+                box_data["icon"] = icon
+                box_data["icon_size"] = min(icon_size, 18)
+            self.print_buffer.append(("box", box_data))
+            # Suppress the print_line() that modules call right after their header
+            self._skip_post_header_line = True
+        else:
+            box_data = {
+                "text": text.upper(),
+                "style": "bold_lg",
+                "padding": 8,
+                "border": 2,
+            }
+            if icon:
+                box_data["icon"] = icon
+                box_data["icon_size"] = icon_size
+            self.print_buffer.append(("box", box_data))
 
     def print_subheader(self, text: str):
         """Print medium-weight subheader."""
@@ -1423,19 +1479,15 @@ class PrinterDriver:
         self.print_text(text, "bold")
 
     def print_line(self):
-        """Print a single-line ASCII dashed separator that does not wrap."""
-        font = self._get_font("light")
-        available_width = self.PRINTER_WIDTH_DOTS - 4  # keep side margins
-
-        try:
-            bbox = font.getbbox("-") if font else None
-            dash_width = (bbox[2] - bbox[0]) if bbox else max(1, self.font_size // 2)
-        except Exception:
-            dash_width = max(1, self.font_size // 2)
-
-        dash_count = max(8, int(available_width // max(1, dash_width)))
-        dash_count = min(dash_count, self.width)
-        self.print_text("-" * dash_count, "light")
+        """Print a solid horizontal divider."""
+        if self._skip_post_header_line:
+            # Module just printed its header — use half-size spacing instead of a line
+            self._skip_post_header_line = False
+            self.print_buffer.append(("spacer", {"height": self.SPACING_SMALL}))
+            return
+        if len(self.print_buffer) >= self.MAX_BUFFER_SIZE:
+            self.flush_buffer()
+        self.print_buffer.append(("divider", {}))
 
     def print_article_block(
         self,

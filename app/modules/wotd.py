@@ -36,7 +36,7 @@ def format_text_receipt(printer, config: Dict[str, Any] = None, module_name: str
         definition = entry.get("merriam_shortdef", "No Definition")
 
         printer.print_header(module_name or "WORD OF THE DAY", icon="book")
-        printer.print_caption(format_print_datetime())
+        printer.print_module_date()
         printer.print_line()
 
         printer.print_bold(word)

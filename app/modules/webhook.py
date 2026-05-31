@@ -203,7 +203,7 @@ def run_webhook(action: WebhookConfig, printer: PrinterDriver, module_name: str 
     """
     header_label = module_name or "WEBHOOK"
     printer.print_header(header_label, icon="plugs")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
 
     try:

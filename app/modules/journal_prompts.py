@@ -82,6 +82,6 @@ def format_journal_prompt_receipt(
     prompt = get_random_prompt()
 
     printer.print_header(module_name or "JOURNAL PROMPT", icon="book")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
     printer.print_body(prompt)

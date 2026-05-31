@@ -68,7 +68,7 @@ def format_quotes_receipt(
 
     # Header
     printer.print_header(module_name or "QUOTE", icon="quotes")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_line()
 
     # Quote body in italics-style (using medium weight for emphasis)

@@ -401,7 +401,7 @@ def execute_crossword(printer, config: Dict[str, Any], module_name: str = None):
 
     # 4. Print Header
     printer.print_header(module_name or "CROSSWORD", icon="grid-nine")
-    printer.print_caption(format_print_datetime())
+    printer.print_module_date()
     printer.print_subheader(f"Level: {difficulty}")
     printer.feed(1)
 

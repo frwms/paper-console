@@ -1156,7 +1156,7 @@ def format_weather_receipt(
     printer.print_header(module_name or "WEATHER", icon="cloud-sun")
 
     if not weather.get("ok", True):
-        printer.print_caption(format_print_datetime())
+        printer.print_module_date()
         printer.print_line()
         printer.print_subheader((weather.get("city") or "LOCATION").upper())
         printer.print_body("Forecast unavailable.")

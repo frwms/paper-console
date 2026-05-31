@@ -155,6 +155,15 @@ class ChannelConfig(BaseModel):
     # Schedule: List of times in "HH:MM" 24h format to automatically print this channel
     schedule: List[str] = []
 
+    # Print date/time once at channel level instead of inside each module
+    only_one_date: bool = False
+    # When only_one_date is on: promote date to box header, demote module names to subheaders
+    invert_header_style: bool = True
+    # Whether to include the time in the channel-level date header
+    show_time: bool = True
+    # Day-of-week format in the channel-level date header: "full", "short", "none"
+    day_format: str = "full"
+
 
 from pydantic import field_validator, Field
 

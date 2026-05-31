@@ -23,6 +23,9 @@ class PrinterDriver:
         self.font_size = self.FONT_SIZE
         self.line_spacing = self.LINE_HEIGHT - self.FONT_SIZE
         self.line_height = self.LINE_HEIGHT
+        self._skip_module_date = False
+        self._use_subheader_for_module_headers = False
+        self._skip_post_header_line = False
     
     def _load_font(self):
         """Mock font loading - returns None."""
@@ -58,12 +61,23 @@ class PrinterDriver:
             print(f"[PRINT] {prefix}{line}")
             self.lines_printed += 1
 
+    def set_channel_options(
+        self,
+        skip_module_date: bool = False,
+        use_subheader_for_module_headers: bool = False,
+    ):
+        self._skip_module_date = skip_module_date
+        self._use_subheader_for_module_headers = use_subheader_for_module_headers
+        self._skip_post_header_line = False
+
+    def print_module_date(self, dt=None):
+        if not self._skip_module_date:
+            from app.config import format_print_datetime
+            self.print_caption(format_print_datetime(dt))
+
     def print_header(self, text: str, icon: str = None, icon_size: int = 24):
-        """Prints large bold header text in a full-width drawn box (simulated)."""
+        """Prints bold header text in a drawn box (simulated)."""
         text = text.upper()
-        inner_width = self.width - 4  # Full width minus borders
-        
-        # Add icon if provided
         if icon:
             icons = {
                 "check": "✓", "home": "⌂", "wifi": "📶", "settings": "⚙",
@@ -73,11 +87,18 @@ class PrinterDriver:
             header_text = f"{icon_char} {text}"
         else:
             header_text = text
-        
-        # Simulate the bitmap box with ASCII
-        print(f"[PRINT] ┏{'━' * inner_width}┓")
-        print(f"[PRINT] ┃{header_text:^{inner_width}}┃")
-        print(f"[PRINT] ┗{'━' * inner_width}┛")
+
+        if self._use_subheader_for_module_headers:
+            inner_width = self.width - 4
+            print(f"[PRINT] ┌{'─' * inner_width}┐")
+            print(f"[PRINT] │{header_text:^{inner_width}}│")
+            print(f"[PRINT] └{'─' * inner_width}┘")
+            self._skip_post_header_line = True
+        else:
+            inner_width = self.width - 4
+            print(f"[PRINT] ┏{'━' * inner_width}┓")
+            print(f"[PRINT] ┃{header_text:^{inner_width}}┃")
+            print(f"[PRINT] ┗{'━' * inner_width}┛")
         self.lines_printed += 3
     
     def print_subheader(self, text: str):
@@ -100,8 +121,12 @@ class PrinterDriver:
         self.lines_printed += 1
 
     def print_line(self):
-        """Prints a decorative separator line."""
-        print(f"[PRINT] {'-' * self.width}")
+        """Prints a solid separator line."""
+        if self._skip_post_header_line:
+            self._skip_post_header_line = False
+            # half-size spacing (no line)
+            return
+        print(f"[PRINT] {'─' * self.width}")
         self.lines_printed += 1
 
     def print_article_block(
