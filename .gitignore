@@ -89,6 +89,7 @@ docs/raspberry-pi-config-full.md
 .claude/
 .codex
 .codex/
+CLAUDE.md
 
 # Deployment scripts (local use only)
 deploy.bat
