@@ -4979,13 +4979,43 @@ async def preview_channel(position: int):
         cap.flush_buffer()
         if not cap.captured_bitmaps:
             raise RuntimeError("No bitmap rendered")
-        from PIL import ImageOps
-        img = cap.captured_bitmaps[-1].rotate(180).convert("L")
-        bbox = ImageOps.invert(img).getbbox()
-        if bbox:
-            img = img.crop((0, 0, img.width, min(bbox[3] + 4, img.height)))
+        img = cap.captured_bitmaps[-1].rotate(180).convert("RGB")
+        from PIL import Image, ImageDraw, ImageFont, ImageOps
+        bbox = ImageOps.invert(img.convert("L")).getbbox()
+        content_end = min(bbox[3] + 4, img.height) if bbox else img.height
+        content_img = img.crop((0, 0, img.width, content_end))
+        hw_tear_px = 41   # hardware min: paper left between print head and tear notch
+        sw_tear_px = cap.SPACING_LARGE * 2 if getattr(settings, 'top_margin_enabled', True) else 0
+        cutter_px = getattr(settings, 'cutter_feed_lines', 7) * 24
+        top_px = max(0, cutter_px - hw_tear_px)  # effective blank above content
+
+        def _band(width, height, color, label):
+            b = Image.new("RGB", (width, height), color)
+            if height >= 14:
+                d = ImageDraw.Draw(b)
+                font = ImageFont.load_default()
+                try:
+                    tb = d.textbbox((0, 0), label, font=font)
+                    tw, th = tb[2] - tb[0], tb[3] - tb[1]
+                except Exception:
+                    tw, th = len(label) * 6, 11
+                d.text(((width - tw) // 2, (height - th) // 2), label, fill=(140, 40, 40), font=font)
+            return b
+
+        total_h = top_px + content_img.height + sw_tear_px + hw_tear_px
+        out = Image.new("RGB", (img.width, total_h), (255, 255, 255))
+        y = 0
+        if top_px > 0:
+            out.paste(_band(img.width, top_px, (255, 195, 195), "feed gap"), (0, y))
+            y += top_px
+        out.paste(content_img, (0, y))
+        y += content_img.height
+        if sw_tear_px > 0:
+            out.paste(_band(img.width, sw_tear_px, (255, 210, 210), "extra padding"), (0, y))
+            y += sw_tear_px
+        out.paste(_band(img.width, hw_tear_px, (255, 175, 175), "hardware min"), (0, y))
         buf = io.BytesIO()
-        img.save(buf, format="PNG")
+        out.save(buf, format="PNG")
         return buf.getvalue()
 
     try:
@@ -5023,13 +5053,43 @@ async def preview_module_endpoint(module_id: str):
         cap.flush_buffer()
         if not cap.captured_bitmaps:
             raise RuntimeError("No bitmap rendered")
-        from PIL import ImageOps
-        img = cap.captured_bitmaps[-1].rotate(180).convert("L")
-        bbox = ImageOps.invert(img).getbbox()
-        if bbox:
-            img = img.crop((0, 0, img.width, min(bbox[3] + 4, img.height)))
+        img = cap.captured_bitmaps[-1].rotate(180).convert("RGB")
+        from PIL import Image, ImageDraw, ImageFont, ImageOps
+        bbox = ImageOps.invert(img.convert("L")).getbbox()
+        content_end = min(bbox[3] + 4, img.height) if bbox else img.height
+        content_img = img.crop((0, 0, img.width, content_end))
+        hw_tear_px = 41   # hardware min: paper left between print head and tear notch
+        sw_tear_px = cap.SPACING_LARGE * 2 if getattr(settings, 'top_margin_enabled', True) else 0
+        cutter_px = getattr(settings, 'cutter_feed_lines', 7) * 24
+        top_px = max(0, cutter_px - hw_tear_px)  # effective blank above content
+
+        def _band(width, height, color, label):
+            b = Image.new("RGB", (width, height), color)
+            if height >= 14:
+                d = ImageDraw.Draw(b)
+                font = ImageFont.load_default()
+                try:
+                    tb = d.textbbox((0, 0), label, font=font)
+                    tw, th = tb[2] - tb[0], tb[3] - tb[1]
+                except Exception:
+                    tw, th = len(label) * 6, 11
+                d.text(((width - tw) // 2, (height - th) // 2), label, fill=(140, 40, 40), font=font)
+            return b
+
+        total_h = top_px + content_img.height + sw_tear_px + hw_tear_px
+        out = Image.new("RGB", (img.width, total_h), (255, 255, 255))
+        y = 0
+        if top_px > 0:
+            out.paste(_band(img.width, top_px, (255, 195, 195), "feed gap"), (0, y))
+            y += top_px
+        out.paste(content_img, (0, y))
+        y += content_img.height
+        if sw_tear_px > 0:
+            out.paste(_band(img.width, sw_tear_px, (255, 210, 210), "extra padding"), (0, y))
+            y += sw_tear_px
+        out.paste(_band(img.width, hw_tear_px, (255, 175, 175), "hardware min"), (0, y))
         buf = io.BytesIO()
-        img.save(buf, format="PNG")
+        out.save(buf, format="PNG")
         return buf.getvalue()
 
     try:

@@ -283,6 +283,8 @@ class Settings(BaseModel):
     release_channel: Literal["stable", "beta"] = "stable"
     max_print_lines: int = 200  # Maximum lines per print job (0 = no limit)
     startup_print_enabled: bool = True  # Print "SYSTEM READY" receipt on boot
+    top_margin_enabled: bool = True  # Add blank space at top of each print job
+    cutter_feed_lines: int = 7  # Lines of paper to advance after printing (controls blank before tear)
 
     # Module Instances: Dictionary of module_id -> ModuleInstance
     # These are reusable module configurations that can be assigned to channels

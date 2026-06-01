@@ -1068,6 +1068,20 @@ const GeneralSettings = ({
             </p>
           </div>
           <div className='mt-4'>
+            <label className={labelClass}>Feed After Print</label>
+            <input
+              type='number'
+              min='0'
+              max='30'
+              value={settings.cutter_feed_lines ?? 7}
+              onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) saveGlobalSettings({ cutter_feed_lines: v }); }}
+              className={inputClass}
+            />
+            <p className='text-xs text-gray-600 mt-1'>
+              Lines of paper advanced after printing. Controls blank space before the tear point. Lower = less blank at top (default: 7, try 3–4 to target ~0.5 cm).
+            </p>
+          </div>
+          <div className='mt-4'>
             <label className={labelClass}>Startup Print</label>
             <label className='flex items-center gap-2 cursor-pointer'>
               <input
@@ -1080,6 +1094,21 @@ const GeneralSettings = ({
             </label>
             <p className='text-xs text-gray-600 mt-1'>
               When enabled, a status receipt is printed each time paper-console starts.
+            </p>
+          </div>
+          <div className='mt-4'>
+            <label className={labelClass}>Tear Padding</label>
+            <label className='flex items-center gap-2 cursor-pointer'>
+              <input
+                type='checkbox'
+                checked={settings.top_margin_enabled ?? true}
+                onChange={(e) => saveGlobalSettings({ top_margin_enabled: e.target.checked })}
+                className='w-4 h-4 accent-black'
+              />
+              <span className='text-sm text-gray-700'>Add extra space before the tear</span>
+            </label>
+            <p className='text-xs text-gray-600 mt-1'>
+              Adds ~4mm of extra padding at the bottom of each print. A hardware minimum always remains — the paper between the print head and the tear notch after each tear (shown as the darker gray in the preview).
             </p>
           </div>
         </div>

@@ -880,7 +880,8 @@ class PrinterDriver:
         
         # Content-only bitmap height. Cutter feed is now applied explicitly
         # after bitmap transmission for more consistent behavior across printers.
-        total_height = measured_content_height + (self.SPACING_LARGE * 2)
+        tear_px = self.SPACING_LARGE * 2 if getattr(app.config.settings, 'top_margin_enabled', True) else 0
+        total_height = measured_content_height + tear_px
         
         # Create Image
         width = self.PRINTER_WIDTH_DOTS
@@ -1663,7 +1664,8 @@ class PrinterDriver:
                 # Explicit post-print feed for cutter clearance.
                 # Use feed_direct() because it sends both ESC d and ESC J variants
                 # for better compatibility across printer firmwares.
-                feed_lines = max(0, int(self.cutter_feed_dots / 24))
+                cutter_setting = getattr(app.config.settings, 'cutter_feed_lines', None)
+                feed_lines = max(0, int(cutter_setting) if cutter_setting is not None else int(self.cutter_feed_dots / 24))
                 if feed_lines > 0:
                     try:
                         self.feed_direct(feed_lines)
