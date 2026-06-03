@@ -1233,7 +1233,7 @@ class PrinterDriver:
         if busy_pin_level is not None:
             while time.time() < deadline:
                 busy_pin_level = self._read_busy_pin()
-                if busy_pin_level == 1:
+                if busy_pin_level == 0:
                     busy_pin_seen = True
                     time.sleep(0.05)
                     continue
