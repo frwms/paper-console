@@ -117,7 +117,7 @@ from app.routers import wifi
 import app.device_password as device_password
 import app.wifi_manager as wifi_manager
 import app.hardware as hardware
-from app.hardware import printer, dial, button, _is_raspberry_pi
+from app.hardware import printer, dial, button, oled, _is_raspberry_pi
 import app.location_lookup as location_lookup
 
 # --- BACKGROUND TASKS ---
@@ -1363,6 +1363,71 @@ async def lifespan(app: FastAPI):
     scheduler_task = asyncio.create_task(scheduler_loop())
     task_monitor_task = asyncio.create_task(task_watchdog())
 
+    # ---------------------------------------------------------------------------
+    # Rotary encoder + OLED integration
+    #
+    # The KY-040 encoder (app/drivers/encoder_gpio.py) is loaded as `dial`
+    # in hardware.py (replacing the original rotary-switch driver).  The
+    # SSD1306 OLED (app/drivers/oled_ssd1306.py) is the `oled` singleton.
+    #
+    # Callback chain on rotation:
+    #   encoder CLK/DT edge  →  encoder._step_state_machine()
+    #     →  encoder._handle_rotation()  →  fires register_callback list
+    #       →  on_dial_change_oled(position)  →  oled.show_channel()
+    #                                         →  (existing dial callbacks fire too)
+    #
+    # Callback chain on SW short press:
+    #   encoder SW falling edge  →  encoder._handle_button()
+    #     →  on_encoder_button_press()
+    #       →  oled.show_status("Printing...")
+    #       →  on_button_press_threadsafe()   ← same path as the big brass button
+    #       →  daemon thread polls print_in_progress
+    #            → oled.show_channel() once print completes
+    #
+    # Adding long press on SW:
+    #   In encoder_gpio.DialDriver._handle_button, measure elapsed time between
+    #   FALLING and RISING edges on the SW pin (or use a hold timer).  Expose
+    #   set_long_press_callback(fn) alongside set_button_callback.  Then wire
+    #   it here the same way button.set_long_press_callback is wired below.
+    #   See button_gpio.ButtonDriver for the full hold-timer pattern.
+    #
+    # set_position(pos) called by the web API (/action/dial/{pos}) fires the
+    # same on_dial_change_oled callback, so the OLED stays in sync with
+    # software-driven position changes too.
+    # ---------------------------------------------------------------------------
+    # Initialize OLED display and encoder button
+    def _oled_channel_name(position: int) -> str:
+        channel = settings.channels.get(str(position))
+        if channel and channel.modules:
+            mod = settings.modules.get(channel.modules[0].module_id)
+            if mod:
+                return mod.name
+        return f"Ch {position}"
+
+    def on_dial_change_oled(position: int):
+        oled.show_channel(position, _oled_channel_name(position))
+
+    def on_encoder_button_press():
+        pos = dial.read_position()
+        oled.show_status("Printing...", _oled_channel_name(pos))
+        on_button_press_threadsafe()
+
+        def _revert_oled():
+            import time as _t
+            deadline = _t.monotonic() + 120  # safety cap: 2 min
+            while _t.monotonic() < deadline:
+                _t.sleep(0.5)
+                if not print_in_progress:
+                    break
+            oled.show_channel(dial.read_position(), _oled_channel_name(dial.read_position()))
+
+        threading.Thread(target=_revert_oled, daemon=True).start()
+
+    dial.register_callback(on_dial_change_oled)
+    if hasattr(dial, "set_button_callback"):
+        dial.set_button_callback(on_encoder_button_press)
+    oled.show_channel(dial.read_position(), _oled_channel_name(dial.read_position()))
+
     # Initialize Main Button Callbacks
     # Short press = Print
     button.set_callback(on_button_press_threadsafe)
@@ -1394,6 +1459,8 @@ async def lifespan(app: FastAPI):
         dial.cleanup()
     if hasattr(button, "cleanup"):
         button.cleanup()
+    if hasattr(oled, "cleanup"):
+        oled.cleanup()
 
 
 app = FastAPI(

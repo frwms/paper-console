@@ -13,20 +13,31 @@ if _is_raspberry_pi:
             from app.drivers.printer_usb import PrinterDriver
         else:
             from app.drivers.printer_serial import PrinterDriver
-        from app.drivers.dial_gpio import DialDriver
+        # Use KY-040 encoder as dial by default; set PC1_USE_ENCODER=0 for rotary switch
+        if os.environ.get("PC1_USE_ENCODER", "1") != "0":
+            from app.drivers.encoder_gpio import DialDriver
+        else:
+            from app.drivers.dial_gpio import DialDriver
         from app.drivers.button_gpio import ButtonDriver
+        try:
+            from app.drivers.oled_ssd1306 import OLEDDriver
+        except Exception:
+            from app.drivers.oled_mock import OLEDDriver
     except ImportError:
         from app.drivers.printer_mock import PrinterDriver
         from app.drivers.dial_mock import DialDriver
         from app.drivers.button_mock import ButtonDriver
+        from app.drivers.oled_mock import OLEDDriver
 else:
     from app.drivers.printer_mock import PrinterDriver
     from app.drivers.dial_mock import DialDriver
     from app.drivers.button_mock import ButtonDriver
+    from app.drivers.oled_mock import OLEDDriver
 
 # Global Hardware Instances
 printer = PrinterDriver(width=PRINTER_WIDTH)
 dial = DialDriver()
+oled = OLEDDriver()
 
 # Main Interface Button (Print / WiFi Setup / Reset) - GPIO 25 (Pin 22)
 button = ButtonDriver(pin=25)
