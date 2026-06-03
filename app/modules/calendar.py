@@ -75,6 +75,25 @@ def parse_events(
 
     events_by_day = {}
 
+    # Pre-pass: collect RECURRENCE-ID keys per UID so RRULE expansion can skip
+    # instances replaced by an exception VEVENT (RFC 5545 §3.8.4.4).
+    # Keys are (date, wall-clock-time) tuples to avoid pytz DST-offset comparison
+    # issues (rrule inherits dtstart's UTC offset even across DST boundaries).
+    recurrence_overrides: Dict[str, set] = {}
+    for component in cal.walk():
+        if component.name != "VEVENT":
+            continue
+        rec_id = component.get("RECURRENCE-ID")
+        if rec_id is None:
+            continue
+        uid = str(component.get("UID", ""))
+        rdt = rec_id.dt
+        if isinstance(rdt, datetime):
+            key = (rdt.date(), rdt.replace(tzinfo=None).time())
+        else:
+            key = (rdt, None)  # all-day event: date only
+        recurrence_overrides.setdefault(uid, set()).add(key)
+
     for component in cal.walk():
         if component.name == "VEVENT":
             summary = str(component.get("summary"))
@@ -106,6 +125,8 @@ def parse_events(
             if "RRULE" in component:
                 # Expand recurring events (RRULE + optional EXDATE/RDATE) inside the view window.
                 try:
+                    uid = str(component.get("UID", ""))
+                    override_keys = recurrence_overrides.get(uid, set())
                     rrule_start = start
                     if is_all_day:
                         rrule_start = datetime.combine(start, datetime.min.time())
@@ -153,6 +174,9 @@ def parse_events(
 
                     for dt in rule.between(query_start, query_end, inc=True):
                         if dt in exdate_keys or dt.date() in exdate_keys:
+                            continue
+                        dt_key = (dt.date(), None) if is_all_day else (dt.date(), dt.replace(tzinfo=None).time())
+                        if dt_key in override_keys:
                             continue
 
                         if is_all_day:
