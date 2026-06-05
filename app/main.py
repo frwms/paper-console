@@ -1397,17 +1397,24 @@ async def lifespan(app: FastAPI):
     # ---------------------------------------------------------------------------
     # Initialize OLED display and encoder button
     def _oled_channel_name(position: int) -> str:
-        channel = settings.channels.get(str(position))
-        if channel and channel.modules:
-            mod = settings.modules.get(channel.modules[0].module_id)
-            if mod:
-                return mod.name
-        return f"Ch {position}"
+        channel = settings.channels.get(position)
+        if channel:
+            if channel.display_name:
+                return channel.display_name
+            if channel.modules:
+                mod = settings.modules.get(channel.modules[0].module_id)
+                if mod:
+                    return mod.name
+        return "WIP"
 
     def on_dial_change_oled(position: int):
         oled.show_channel(position, _oled_channel_name(position))
 
     def on_encoder_button_press():
+        # In sysinfo mode the encoder button exits sysinfo instead of printing.
+        if oled.is_in_sysinfo():
+            oled.exit_sysinfo()
+            return
         pos = dial.read_position()
         oled.show_status("Printing...", _oled_channel_name(pos))
         on_button_press_threadsafe()
@@ -1423,9 +1430,14 @@ async def lifespan(app: FastAPI):
 
         threading.Thread(target=_revert_oled, daemon=True).start()
 
+    def on_encoder_long_press():
+        oled.enter_sysinfo()
+
     dial.register_callback(on_dial_change_oled)
     if hasattr(dial, "set_button_callback"):
         dial.set_button_callback(on_encoder_button_press)
+    if hasattr(dial, "set_long_press_callback"):
+        dial.set_long_press_callback(on_encoder_long_press)
     oled.show_channel(dial.read_position(), _oled_channel_name(dial.read_position()))
 
     # Initialize Main Button Callbacks
@@ -4530,6 +4542,28 @@ async def update_channel_options(
     background_tasks.add_task(save_settings_background, settings.model_copy(deep=True))
 
     return {"message": "Options updated", "channel": settings.channels[position]}
+
+
+class ChannelNameRequest(BaseModel):
+    display_name: Optional[str] = None
+
+
+@app.post("/api/channels/{position}/name", dependencies=[Depends(require_admin_access)])
+async def update_channel_name(
+    position: int,
+    payload: ChannelNameRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Set or clear the custom OLED display name for a channel."""
+    global settings
+
+    if position not in settings.channels:
+        settings.channels[position] = ChannelConfig(modules=[])
+
+    settings.channels[position].display_name = payload.display_name or None
+    background_tasks.add_task(save_settings_background, settings.model_copy(deep=True))
+
+    return {"message": "Name updated", "channel": settings.channels[position]}
 
 
 def _build_channel_date_line(channel, now, settings) -> str:

@@ -86,6 +86,7 @@ try:
         GPIOEVENT_REQUEST_BOTH_EDGES,
         GPIOEVENT_REQUEST_FALLING_EDGE,
         GPIOEVENT_EVENT_FALLING_EDGE,
+        GPIOEVENT_EVENT_RISING_EDGE,
     )
 
     if os.path.exists("/dev/gpiochip0"):
@@ -162,6 +163,7 @@ class DialDriver:
         self.current_position: int = 1
         self.callbacks: List[Callable[[int], None]] = []
         self.button_callback: Optional[Callable[[], None]] = None
+        self.long_press_callback: Optional[Callable[[], None]] = None
 
         self.monitoring = False
         self.monitor_thread: Optional[threading.Thread] = None
@@ -174,6 +176,7 @@ class DialDriver:
 
         self._sm_state: int = _S_R
         self._last_button_time: float = 0.0
+        self._sw_press_start: float = 0.0   # monotonic time of last SW falling edge
 
         if not self.gpio_available:
             return
@@ -191,7 +194,7 @@ class DialDriver:
                 self.pin_dt, handle_flags, GPIOEVENT_REQUEST_BOTH_EDGES, label="enc_dt"
             )
             self.sw_event = self.chip.request_event(
-                self.pin_sw, handle_flags, GPIOEVENT_REQUEST_FALLING_EDGE, label="enc_sw"
+                self.pin_sw, handle_flags, GPIOEVENT_REQUEST_BOTH_EDGES, label="enc_sw"
             )
 
             self.monitoring = True
@@ -226,16 +229,33 @@ class DialDriver:
                     except Exception:
                         pass
 
-    def _handle_button(self) -> None:
+    _LONG_PRESS_S = 0.520   # 520 ms threshold (matches design spec)
+
+    def _handle_button(self, event_id: int) -> None:
         now = time.monotonic()
-        if now - self._last_button_time < _MIN_BUTTON_INTERVAL:
-            return
-        self._last_button_time = now
-        if self.button_callback:
-            try:
-                self.button_callback()
-            except Exception:
-                pass
+        if event_id == GPIOEVENT_EVENT_FALLING_EDGE:
+            self._sw_press_start = now
+        elif event_id == GPIOEVENT_EVENT_RISING_EDGE:
+            elapsed = now - self._sw_press_start
+            if self._sw_press_start == 0.0:
+                return   # spurious rising edge before any falling edge
+            self._sw_press_start = 0.0
+            if elapsed >= self._LONG_PRESS_S:
+                if self.long_press_callback:
+                    try:
+                        self.long_press_callback()
+                    except Exception:
+                        pass
+            else:
+                # Short press — apply debounce
+                if now - self._last_button_time < _MIN_BUTTON_INTERVAL:
+                    return
+                self._last_button_time = now
+                if self.button_callback:
+                    try:
+                        self.button_callback()
+                    except Exception:
+                        pass
 
     def _monitor_loop(self) -> None:
         while self.monitoring:
@@ -263,8 +283,8 @@ class DialDriver:
                         self._step_state_machine()
                     elif self.sw_event and fd == self.sw_event.fd:
                         event_id = self.sw_event.read_event()
-                        if event_id == GPIOEVENT_EVENT_FALLING_EDGE:
-                            self._handle_button()
+                        if event_id in (GPIOEVENT_EVENT_FALLING_EDGE, GPIOEVENT_EVENT_RISING_EDGE):
+                            self._handle_button(event_id)
 
             except OSError:
                 if self.monitoring:
@@ -278,8 +298,12 @@ class DialDriver:
         self.callbacks.append(callback)
 
     def set_button_callback(self, callback: Callable[[], None]) -> None:
-        """Register a function called when the encoder push-button is pressed."""
+        """Register a function called on encoder SW short press."""
         self.button_callback = callback
+
+    def set_long_press_callback(self, callback: Callable[[], None]) -> None:
+        """Register a function called on encoder SW long press (≥520 ms)."""
+        self.long_press_callback = callback
 
     def read_position(self) -> int:
         """Return the current channel position (1-8)."""

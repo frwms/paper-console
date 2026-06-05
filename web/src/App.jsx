@@ -6,6 +6,7 @@ import AddModuleModal from './components/AddModuleModal';
 import EditModuleModal from './components/EditModuleModal';
 import ScheduleModal from './components/ScheduleModal';
 import ChannelSettingsModal from './components/ChannelSettingsModal';
+import ChannelNameModal from './components/ChannelNameModal';
 import APInstructionsModal from './components/APInstructionsModal';
 import StatusMessage from './components/StatusMessage';
 import ResetSettingsButton from './components/ResetSettingsButton';
@@ -48,6 +49,7 @@ function App() {
   const [editingModule, setEditingModule] = useState(null); // Local copy of module being edited
   const [showScheduleModal, setShowScheduleModal] = useState(null); // channel position or null
   const [showChannelSettingsModal, setShowChannelSettingsModal] = useState(null); // channel position or null
+  const [showChannelNameModal, setShowChannelNameModal] = useState(null); // channel position or null
   const [showAPInstructions, setShowAPInstructions] = useState(false);
   const [authInfo, setAuthInfo] = useState(null);
   const [authError, setAuthError] = useState('');
@@ -236,6 +238,25 @@ function App() {
     } catch (err) {
       console.error('Error updating channel options:', err);
       setStatus({ type: 'error', message: 'Failed to update channel settings' });
+    }
+  };
+
+  const updateChannelName = async (position, displayName) => {
+    try {
+      const response = await adminAuthFetch(`/api/channels/${position}/name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: displayName }),
+      });
+      if (!response.ok) throw new Error('Failed to update channel name');
+      const data = await response.json();
+      setSettings((prev) => ({
+        ...prev,
+        channels: { ...prev.channels, [position]: data.channel },
+      }));
+    } catch (err) {
+      console.error('Error updating channel name:', err);
+      setStatus({ type: 'error', message: 'Failed to update channel name' });
     }
   };
 
@@ -954,6 +975,7 @@ function App() {
               triggerModulePreview={triggerModulePreview}
               setShowScheduleModal={setShowScheduleModal}
               setShowChannelSettingsModal={setShowChannelSettingsModal}
+              setShowChannelNameModal={setShowChannelNameModal}
               swapChannels={swapChannels}
               setShowEditModuleModal={setShowEditModuleModal}
               setEditingModule={setEditingModule}
@@ -1030,6 +1052,14 @@ function App() {
           channel={settings.channels?.[showChannelSettingsModal] || {}}
           onClose={() => setShowChannelSettingsModal(null)}
           onUpdate={(opts) => updateChannelOptions(showChannelSettingsModal, opts)}
+        />
+
+        <ChannelNameModal
+          position={showChannelNameModal}
+          channel={settings.channels?.[showChannelNameModal] || {}}
+          modules={settings.modules}
+          onClose={() => setShowChannelNameModal(null)}
+          onSave={(name) => updateChannelName(showChannelNameModal, name)}
         />
 
         <APInstructionsModal show={showAPInstructions} wifiStatus={wifiStatus} />

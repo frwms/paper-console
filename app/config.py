@@ -163,6 +163,8 @@ class ChannelConfig(BaseModel):
     show_time: bool = True
     # Day-of-week format in the channel-level date header: "full", "short", "none"
     day_format: str = "full"
+    # Custom name shown on the OLED display; None = use first module name
+    display_name: Optional[str] = None
 
 
 from pydantic import field_validator, Field

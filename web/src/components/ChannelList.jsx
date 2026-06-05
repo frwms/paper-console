@@ -10,6 +10,7 @@ import ArrowUpIcon from '../assets/ArrowUpIcon';
 import ArrowDownIcon from '../assets/ArrowDownIcon';
 import WarningIcon from '../assets/WarningIcon';
 import PreferencesIcon from '../assets/PreferencesIcon';
+import PencilIcon from '../assets/PencilIcon';
 import { getModuleValidationIssueCount } from '../lib/moduleValidation';
 
 const ChannelList = ({
@@ -21,6 +22,7 @@ const ChannelList = ({
   triggerModulePreview,
   setShowScheduleModal,
   setShowChannelSettingsModal,
+  setShowChannelNameModal,
   swapChannels,
   setShowEditModuleModal,
   setEditingModule,
@@ -453,6 +455,21 @@ const ChannelList = ({
                       aria-label={`Configure settings for channel ${pos}`}
                       title='Channel Settings'>
                       <PreferencesIcon className={`w-3.5 h-3.5 transition-all ${channel.only_one_date ? '' : 'text-gray-400 group-hover:text-black'}`} style={channel.only_one_date ? { color: 'var(--color-brass)' } : {}} />
+                    </button>
+                    <button
+                      type='button'
+                      onClick={() => setShowChannelNameModal(pos)}
+                      className={`group flex items-center justify-center px-2 py-1 rounded border-2 transition-all cursor-pointer ${
+                        channel.display_name
+                          ? 'bg-transparent shadow-sm'
+                          : 'bg-transparent border-gray-300 hover:border-black hover:bg-white'
+                      }`}
+                      style={channel.display_name ? { color: 'var(--color-brass)', borderColor: 'var(--color-brass)' } : {}}
+                      onMouseEnter={(e) => { if (channel.display_name) e.currentTarget.style.backgroundColor = 'var(--color-brass-10)'; }}
+                      onMouseLeave={(e) => { if (channel.display_name) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      aria-label={`Set display name for channel ${pos}`}
+                      title={channel.display_name ? `OLED name: ${channel.display_name}` : 'Set OLED display name'}>
+                      <PencilIcon className={`w-3.5 h-3.5 transition-all ${channel.display_name ? '' : 'text-gray-400 group-hover:text-black'}`} style={channel.display_name ? { color: 'var(--color-brass)' } : {}} />
                     </button>
                   </div>
                 </div>
